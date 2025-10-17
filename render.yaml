@@ -25,9 +25,7 @@ services:
         value: defaultdb
       - key: DB_USERNAME
         value: avnadmin
-      # REMOVE THIS LINE - DB_PASSWORD should be set in Render dashboard, not in code
-      # - key: DB_PASSWORD
-      #   value: AVNS_gD22ukTb57W4zE508Ml
+      # NO DB_PASSWORD HERE - set it in Render dashboard
       - key: SESSION_DRIVER
         value: database
       - key: FILESYSTEM_DISK
