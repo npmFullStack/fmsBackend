@@ -27,12 +27,18 @@ RUN sed -i 's|/var/www/html|/var/www/html/public|g' /etc/apache2/sites-available
 # Permissions for Laravel
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 RUN chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+RUN chmod -R 775 /var/www/html/storage/framework/ /var/www/html/storage/logs/
 
-# Generate storage link and run migrations
+# Generate storage link
 RUN php artisan storage:link
+
+# Clear all caches
+RUN php artisan config:clear
+RUN php artisan cache:clear
+RUN php artisan view:clear
 
 # Expose port 80
 EXPOSE 80
 
-# Start Apache server with migrations
-CMD php artisan migrate --force && apache2-foreground
+# Start Apache server with migrations and cache clearing
+CMD php artisan config:clear && php artisan cache:clear && php artisan view:clear && php artisan migrate --force && apache2-foreground
