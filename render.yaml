@@ -25,7 +25,6 @@ services:
         value: defaultdb
       - key: DB_USERNAME
         value: avnadmin
-      # NO DB_PASSWORD HERE - set it in Render dashboard
       - key: SESSION_DRIVER
         value: database
       - key: FILESYSTEM_DISK
