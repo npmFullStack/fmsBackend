@@ -11,10 +11,17 @@ return Application::configure(basePath: dirname(__DIR__))
         commands: __DIR__.'/../routes/console.php',
         health: '/up',
     )
-    ->withMiddleware(function (\Illuminate\Foundation\Configuration\Middleware $middleware): void {
-        //
+    ->withMiddleware(function (Middleware $middleware): void {
+        // Apply CORS globally to ALL requests (remove the alias)
+        $middleware->web(append: [
+            \App\Http\Middleware\Cors::class,
+        ]);
+        
+        $middleware->api(append: [
+            \App\Http\Middleware\Cors::class,
+        ]);
     })
-    ->withExceptions(function (\Illuminate\Foundation\Configuration\Exceptions $exceptions): void {
+    ->withExceptions(function (Exceptions $exceptions): void {
         //
     })
     ->create();
