@@ -12,6 +12,7 @@ return new class extends Migration
             $table->id();
             $table->string('name');
             $table->decimal('base_rate', 10, 2);
+            $table->boolean('is_deleted')->default(0);
             $table->timestamps();
         });
     }

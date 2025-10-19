@@ -12,6 +12,7 @@ class CategoryController extends Controller
      */
     public function index()
     {
+        // Only non-deleted categories are automatically returned due to global scope
         return response()->json(Category::all());
     }
 
@@ -33,16 +34,19 @@ class CategoryController extends Controller
     /**
      * Display the specified resource.
      */
-    public function show(Category $category)
+    public function show($id)
     {
+        $category = Category::findOrFail($id);
         return response()->json($category);
     }
 
     /**
      * Update the specified resource in storage.
      */
-    public function update(Request $request, Category $category)
+    public function update(Request $request, $id)
     {
+        $category = Category::findOrFail($id);
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'base_rate' => 'required|numeric',
@@ -54,12 +58,24 @@ class CategoryController extends Controller
     }
 
     /**
-     * Remove the specified resource from storage.
+     * Soft delete — mark as deleted instead of removing.
      */
-    public function destroy(Category $category)
+    public function destroy($id)
     {
-        $category->delete();
+        $category = Category::findOrFail($id);
+        $category->update(['is_deleted' => 1]);
 
-        return response()->json(null, 204);
+        return response()->json(['message' => 'Category marked as deleted'], 200);
+    }
+
+    /**
+     * Optional: Restore a deleted category
+     */
+    public function restore($id)
+    {
+        $category = Category::withoutGlobalScope('not_deleted')->findOrFail($id);
+        $category->update(['is_deleted' => 0]);
+
+        return response()->json(['message' => 'Category restored'], 200);
     }
 }
