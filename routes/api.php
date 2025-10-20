@@ -4,14 +4,15 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ShipRouteController;
 
-// Category CRUD + restore
-Route::apiResource('categories', CategoryController::class);
+// IMPORTANT: Define custom routes BEFORE apiResource
+// Add bulk delete route (must be before apiResource)
+Route::post('categories/bulk-delete', [CategoryController::class, 'bulkDestroy']);
 
-// Add a custom route for restoring a soft-deleted category
+// Add restore route (must be before apiResource)
 Route::patch('categories/{id}/restore', [CategoryController::class, 'restore']);
 
-// Add bulk delete route
-Route::post('categories/bulk-delete', [CategoryController::class, 'bulkDestroy']);
+// Category CRUD
+Route::apiResource('categories', CategoryController::class);
 
 // Other resources
 Route::apiResource('ship-routes', ShipRouteController::class);
