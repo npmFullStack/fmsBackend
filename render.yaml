@@ -4,32 +4,3 @@ services:
     env: docker
     plan: free
     dockerfilePath: ./Dockerfile
-    envVars:
-      - key: APP_NAME
-        value: "FMS Backend"
-      - key: APP_ENV
-        value: production
-      - key: APP_DEBUG
-        value: false
-      - key: APP_URL
-        value: https://fmsbackend-ob3f.onrender.com
-      - key: APP_KEY
-        value: base64:+Hw28r3sEWJLLdej0rqqvqHXGpk9ZGJ2ZEUKrLuWInQ=
-      - key: DB_CONNECTION
-        value: mysql
-      - key: DB_HOST
-        value: fms-fms.b.aivencloud.com
-      - key: DB_PORT
-        value: 16971
-      - key: DB_DATABASE
-        value: defaultdb
-      - key: DB_USERNAME
-        value: avnadmin
-      - key: DB_PASSWORD
-        value: AVNS_gD22uKTb57W4zE508MI
-      - key: SESSION_DRIVER
-        value: database
-      - key: FILESYSTEM_DISK
-        value: public
-      - key: QUEUE_CONNECTION
-        value: sync
