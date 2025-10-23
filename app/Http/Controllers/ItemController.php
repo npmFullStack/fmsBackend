@@ -1,9 +1,9 @@
 <?php
-
 namespace App\Http\Controllers;
 
 use App\Models\Item;
 use App\Models\Category;
+use App\Services\PricingService;
 use Illuminate\Http\Request;
 
 class ItemController extends Controller
@@ -16,7 +16,7 @@ class ItemController extends Controller
         $query = Item::with('category')->where('is_deleted', false);
 
         if (!empty($search)) {
-            $query->where('name', 'like', '%'. $search . '%');
+            $query->where('name', 'like', '%' . $search . '%');
         }
 
         $sort = $request->get('sort', 'id');
@@ -31,24 +31,33 @@ class ItemController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
             'category_id' => 'required|exists:categories,id',
             'weight' => 'required|numeric|min:0.01',
+            'base_price' => 'required|numeric|min:0'
         ]);
 
-        // Get category to calculate costs
         $category = Category::find($validated['category_id']);
         
-        $baseFreightCost = $validated['weight'] * $category->base_rate;
-        $totalCost = $baseFreightCost; // Add other fees here if needed
+        // Calculate the price using PricingService
+        $pricing = PricingService::calculateItemPrice(
+            $validated['base_price'],
+            $validated['weight'],
+            $category
+        );
 
         $item = Item::create([
             'name' => $validated['name'],
+            'description' => $validated['description'],
             'category_id' => $validated['category_id'],
             'weight' => $validated['weight'],
-            'base_freight_cost' => $baseFreightCost,
-            'total_cost' => $totalCost,
+            'base_price' => $validated['base_price'],
+            'calculated_price' => $pricing['total_price'],
             'is_deleted' => false
         ]);
+
+        // Include pricing breakdown in response
+        $item->pricing_breakdown = $pricing;
 
         return response()->json($item, 201);
     }
@@ -56,10 +65,19 @@ class ItemController extends Controller
     public function show($id)
     {
         $item = Item::with('category')->where('id', $id)->where('is_deleted', false)->first();
-        
+
         if (!$item) {
             return response()->json(['message' => 'Item not found'], 404);
         }
+
+        // Calculate current pricing breakdown
+        $pricing = PricingService::calculateItemPrice(
+            $item->base_price,
+            $item->weight,
+            $item->category
+        );
+
+        $item->pricing_breakdown = $pricing;
 
         return response()->json($item);
     }
@@ -67,29 +85,39 @@ class ItemController extends Controller
     public function update(Request $request, $id)
     {
         $item = Item::where('id', $id)->where('is_deleted', false)->first();
-        
+
         if (!$item) {
             return response()->json(['message' => 'Item not found'], 404);
         }
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'description' => 'nullable|string',
             'category_id' => 'required|exists:categories,id',
             'weight' => 'required|numeric|min:0.01',
+            'base_price' => 'required|numeric|min:0'
         ]);
 
-        // Recalculate costs if category or weight changes
         $category = Category::find($validated['category_id']);
-        $baseFreightCost = $validated['weight'] * $category->base_rate;
-        $totalCost = $baseFreightCost;
+        
+        // Recalculate the price
+        $pricing = PricingService::calculateItemPrice(
+            $validated['base_price'],
+            $validated['weight'],
+            $category
+        );
 
         $item->update([
             'name' => $validated['name'],
+            'description' => $validated['description'],
             'category_id' => $validated['category_id'],
             'weight' => $validated['weight'],
-            'base_freight_cost' => $baseFreightCost,
-            'total_cost' => $totalCost
+            'base_price' => $validated['base_price'],
+            'calculated_price' => $pricing['total_price']
         ]);
+
+        // Include pricing breakdown in response
+        $item->pricing_breakdown = $pricing;
 
         return response()->json($item);
     }
@@ -97,7 +125,7 @@ class ItemController extends Controller
     public function destroy($id)
     {
         $item = Item::where('id', $id)->where('is_deleted', false)->first();
-        
+
         if (!$item) {
             return response()->json(['message' => 'Item not found'], 404);
         }
