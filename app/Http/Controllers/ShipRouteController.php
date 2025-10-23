@@ -3,11 +3,11 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Category;
+use App\Models\ShipRoute;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
-class CategoryController extends Controller
+class ShipRouteController extends Controller
 {
     /**
      * Display a listing of the resource.
