@@ -31,7 +31,6 @@ class ItemController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
             'category_id' => 'required|exists:categories,id',
             'weight' => 'required|numeric|min:0.01',
             'base_price' => 'required|numeric|min:0'
@@ -48,7 +47,6 @@ class ItemController extends Controller
 
         $item = Item::create([
             'name' => $validated['name'],
-            'description' => $validated['description'],
             'category_id' => $validated['category_id'],
             'weight' => $validated['weight'],
             'base_price' => $validated['base_price'],
@@ -92,7 +90,6 @@ class ItemController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'description' => 'nullable|string',
             'category_id' => 'required|exists:categories,id',
             'weight' => 'required|numeric|min:0.01',
             'base_price' => 'required|numeric|min:0'
@@ -109,7 +106,6 @@ class ItemController extends Controller
 
         $item->update([
             'name' => $validated['name'],
-            'description' => $validated['description'],
             'category_id' => $validated['category_id'],
             'weight' => $validated['weight'],
             'base_price' => $validated['base_price'],

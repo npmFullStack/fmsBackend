@@ -7,13 +7,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::create('items', function (Blueprint $table) {
+        Schema::create('shipping_lines', function (Blueprint $table) {
             $table->id();
             $table->string('name');
-            $table->foreignId('category_id')->constrained()->onDelete('cascade');
-            $table->decimal('weight', 10, 2);
-            $table->decimal('base_price', 10, 2);
-            $table->decimal('calculated_price', 10, 2);
+            $table->decimal('base_rate_per_km', 10, 2);
+            $table->decimal('weight_rate_per_km', 10, 4);
+            $table->decimal('min_charge', 10, 2)->default(0);
             $table->boolean('is_deleted')->default(false);
             $table->timestamps();
         });
@@ -21,6 +20,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        Schema::dropIfExists('items');
+        Schema::dropIfExists('shipping_lines');
     }
 };

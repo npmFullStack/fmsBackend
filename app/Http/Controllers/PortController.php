@@ -34,11 +34,10 @@ class PortController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:ports,name',
-            'route_name' => 'required|string|max:255|unique:ports,route_name', // Add this
+            'route_name' => 'required|string|max:255|unique:ports,route_name',
             'address' => 'nullable|string',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
-            'is_active' => 'boolean'
         ]);
 
         $port = Port::create(array_merge($validated, [
@@ -73,7 +72,6 @@ class PortController extends Controller
             'address' => 'nullable|string',
             'latitude' => 'required|numeric|between:-90,90',
             'longitude' => 'required|numeric|between:-180,180',
-            'is_active' => 'boolean'
         ]);
 
         $port->update($validated);

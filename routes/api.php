@@ -5,6 +5,9 @@ use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ContainerTypeController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PortController;
+use App\Http\Controllers\ShipRouteController;
+use App\Http\Controllers\ShippingLineController;
+use App\Http\Controllers\Utility\PricingController;
 
 // Category Route Group
 Route::prefix('categories')->group(function () {
@@ -16,6 +19,7 @@ Route::prefix('categories')->group(function () {
     Route::post('/bulk-delete', [CategoryController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [CategoryController::class, 'restore']);
 });
+
 // Container Type Route Group
 Route::prefix('container-types')->group(function () {
     Route::get('/', [ContainerTypeController::class, 'index']);
@@ -26,6 +30,7 @@ Route::prefix('container-types')->group(function () {
     Route::post('/bulk-delete', [ContainerTypeController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [ContainerTypeController::class, 'restore']);
 });
+
 // Items Route Group
 Route::prefix('items')->group(function () {
     Route::get('/', [ItemController::class, 'index']);
@@ -36,6 +41,7 @@ Route::prefix('items')->group(function () {
     Route::post('/bulk-delete', [ItemController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [ItemController::class, 'restore']);
 });
+
 // Ports Route Group
 Route::prefix('ports')->group(function () {
     Route::get('/', [PortController::class, 'index']);
@@ -45,4 +51,36 @@ Route::prefix('ports')->group(function () {
     Route::delete('/{id}', [PortController::class, 'destroy']);
     Route::post('/bulk-delete', [PortController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [PortController::class, 'restore']);
+});
+
+// Shipping Lines Route Group
+Route::prefix('shipping-lines')->group(function () {
+    Route::get('/', [ShippingLineController::class, 'index']);
+    Route::post('/', [ShippingLineController::class, 'store']);
+    Route::get('/{id}', [ShippingLineController::class, 'show']);
+    Route::put('/{id}', [ShippingLineController::class, 'update']);
+    Route::delete('/{id}', [ShippingLineController::class, 'destroy']);
+    Route::post('/bulk-delete', [ShippingLineController::class, 'bulkDestroy']);
+    Route::post('/{id}/restore', [ShippingLineController::class, 'restore']);
+    Route::get('/{id}/routes', [ShippingLineController::class, 'getRoutes']);
+});
+
+// Ship Routes Route Group
+Route::prefix('ship-routes')->group(function () {
+    Route::get('/', [ShipRouteController::class, 'index']);
+    Route::post('/', [ShipRouteController::class, 'store']);
+    Route::get('/{id}', [ShipRouteController::class, 'show']);
+    Route::put('/{id}', [ShipRouteController::class, 'update']);
+    Route::delete('/{id}', [ShipRouteController::class, 'destroy']);
+    Route::post('/bulk-delete', [ShipRouteController::class, 'bulkDestroy']);
+    Route::post('/{id}/restore', [ShipRouteController::class, 'restore']);
+    Route::get('/find/route', [ShipRouteController::class, 'getRouteBetweenPorts']);
+});
+
+// Pricing Route Group
+Route::prefix('pricing')->group(function () {
+    Route::post('/calculate-item', [PricingController::class, 'calculateItemPrice']);
+    Route::post('/calculate-bulk', [PricingController::class, 'calculateBulkShipping']);
+    Route::get('/available-shipping', [PricingController::class, 'getAvailableShippingLines']);
+    Route::get('/shipping-rates', [PricingController::class, 'getShippingRates']);
 });

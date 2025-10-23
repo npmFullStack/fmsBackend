@@ -15,7 +15,6 @@ return new class extends Migration
             $table->text('address')->nullable(); 
             $table->decimal('latitude', 10, 8); 
             $table->decimal('longitude', 11, 8); 
-            $table->boolean('is_active')->default(true);
             $table->boolean('is_deleted')->default(false);
             $table->timestamps();
         });
