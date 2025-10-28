@@ -1,4 +1,5 @@
 <?php
+
 namespace App\Http\Controllers;
 
 use App\Models\Category;
@@ -29,9 +30,6 @@ class CategoryController extends Controller
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:categories,name',
-            'base_rate' => 'required|numeric|min:0',
-            'weight_multiplier' => 'required|numeric|min:0',
-            'surcharge_percentage' => 'required|numeric|min:0|max:100'
         ]);
 
         $category = Category::create($validated);
@@ -60,9 +58,6 @@ class CategoryController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255|unique:categories,name,' . $id,
-            'base_rate' => 'required|numeric|min:0',
-            'weight_multiplier' => 'required|numeric|min:0',
-            'surcharge_percentage' => 'required|numeric|min:0|max:100'
         ]);
 
         $category->update($validated);
@@ -91,7 +86,7 @@ class CategoryController extends Controller
         ]);
 
         $ids = $validated['ids'];
-        
+
         Category::whereIn('id', $ids)
             ->where('is_deleted', false)
             ->update(['is_deleted' => true]);

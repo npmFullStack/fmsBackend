@@ -7,7 +7,7 @@ use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PortController;
 use App\Http\Controllers\ShipRouteController;
 use App\Http\Controllers\ShippingLineController;
-use App\Http\Controllers\Utility\PricingController;
+use App\Http\Controllers\BookingController;
 
 // Category Route Group
 Route::prefix('categories')->group(function () {
@@ -77,10 +77,14 @@ Route::prefix('ship-routes')->group(function () {
     Route::get('/find/route', [ShipRouteController::class, 'getRouteBetweenPorts']);
 });
 
-// Pricing Route Group
-Route::prefix('pricing')->group(function () {
-    Route::post('/calculate-item', [PricingController::class, 'calculateItemPrice']);
-    Route::post('/calculate-bulk', [PricingController::class, 'calculateBulkShipping']);
-    Route::get('/available-shipping', [PricingController::class, 'getAvailableShippingLines']);
-    Route::get('/shipping-rates', [PricingController::class, 'getShippingRates']);
+// Booking Route Group
+Route::prefix('bookings')->group(function () {
+    Route::get('/', [BookingController::class, 'index']);
+    Route::post('/', [BookingController::class, 'store']);
+    Route::get('/{id}', [BookingController::class, 'show']);
+    Route::put('/{id}', [BookingController::class, 'update']);
+    Route::delete('/{id}', [BookingController::class, 'destroy']);
+    Route::post('/bulk-delete', [BookingController::class, 'bulkDestroy']);
+    Route::post('/{id}/restore', [BookingController::class, 'restore']);
+    Route::put('/{id}/status', [BookingController::class, 'updateStatus']);
 });
