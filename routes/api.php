@@ -6,8 +6,8 @@ use App\Http\Controllers\ContainerTypeController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PortController;
 use App\Http\Controllers\ShipRouteController;
-use App\Http\Controllers\ShippingLineController;
 use App\Http\Controllers\BookingController;
+use App\Http\Controllers\ShippingLineController;
 
 // Category Route Group
 Route::prefix('categories')->group(function () {
@@ -87,4 +87,15 @@ Route::prefix('bookings')->group(function () {
     Route::post('/bulk-delete', [BookingController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [BookingController::class, 'restore']);
     Route::put('/{id}/status', [BookingController::class, 'updateStatus']);
+});
+
+// Shipping Lines Route Group  
+Route::prefix('shipping-lines')->group(function () {  
+    Route::get('/', [ShippingLineController::class, 'index']);  
+    Route::post('/', [ShippingLineController::class, 'store']);  
+    Route::get('/{id}', [ShippingLineController::class, 'show']);  
+    Route::put('/{id}', [ShippingLineController::class, 'update']);  
+    Route::delete('/{id}', [ShippingLineController::class, 'destroy']);  
+    Route::post('/bulk-delete', [ShippingLineController::class, 'bulkDestroy']);  
+    Route::post('/{id}/restore', [ShippingLineController::class, 'restore']);
 });
