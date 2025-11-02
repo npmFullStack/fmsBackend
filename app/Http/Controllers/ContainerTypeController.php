@@ -30,9 +30,7 @@ class ContainerTypeController extends Controller
     {
         $validated = $request->validate([
             'size' => 'required|string|max:255',
-            'load_type' => 'required|in:LCL,FCL',
             'max_weight' => 'required|numeric|min:0',
-            'fcl_rate' => 'nullable|numeric|min:0',
         ]);
 
         $containerType = ContainerType::create(array_merge($validated, ['is_deleted' => 0]));
@@ -61,9 +59,7 @@ class ContainerTypeController extends Controller
 
         $validated = $request->validate([
             'size' => 'required|string|max:255',
-            'load_type' => 'required|in:LCL,FCL',
             'max_weight' => 'required|numeric|min:0',
-            'fcl_rate' => 'nullable|numeric|min:0',
         ]);
 
         $containerType->update($validated);
@@ -88,11 +84,13 @@ class ContainerTypeController extends Controller
     {
         $validated = $request->validate([
             'ids' => 'required|array',
-            'ids.*' => 'exists:container_types,id'
+            'ids.*' => 'exists:container_types,id',
         ]);
 
         $ids = $validated['ids'];
-        ContainerType::whereIn('id', $ids)->where('is_deleted', 0)->update(['is_deleted' => 1]);
+        ContainerType::whereIn('id', $ids)
+            ->where('is_deleted', 0)
+            ->update(['is_deleted' => 1]);
 
         return response()->json(['message' => count($ids) . ' container types deleted successfully'], 200);
     }

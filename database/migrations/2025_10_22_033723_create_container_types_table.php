@@ -11,9 +11,7 @@ return new class extends Migration
         Schema::create('container_types', function (Blueprint $table) {
             $table->id();
             $table->string('size');
-            $table->enum('load_type', ['LCL', 'FCL']);
             $table->decimal('max_weight', 10, 2);
-            $table->decimal('fcl_rate', 10, 2)->nullable();
             $table->boolean('is_deleted')->default(0);
             $table->timestamps();
         });

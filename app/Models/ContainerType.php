@@ -11,9 +11,7 @@ class ContainerType extends Model
 
     protected $fillable = [
         'size',
-        'load_type',
         'max_weight',
-        'fcl_rate',
-        'is_deleted'
+        'is_deleted',
     ];
 }
