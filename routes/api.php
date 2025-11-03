@@ -6,8 +6,8 @@ use App\Http\Controllers\ContainerTypeController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PortController;
 use App\Http\Controllers\ShipRouteController;
-use App\Http\Controllers\BookingController;
 use App\Http\Controllers\ShippingLineController;
+use App\Http\Controllers\BookingController;
 
 // Category Route Group
 Route::prefix('categories')->group(function () {
@@ -77,18 +77,6 @@ Route::prefix('ship-routes')->group(function () {
     Route::get('/find/route', [ShipRouteController::class, 'getRouteBetweenPorts']);
 });
 
-// Booking Route Group
-Route::prefix('bookings')->group(function () {
-    Route::get('/', [BookingController::class, 'index']);
-    Route::post('/', [BookingController::class, 'store']);
-    Route::get('/{id}', [BookingController::class, 'show']);
-    Route::put('/{id}', [BookingController::class, 'update']);
-    Route::delete('/{id}', [BookingController::class, 'destroy']);
-    Route::post('/bulk-delete', [BookingController::class, 'bulkDestroy']);
-    Route::post('/{id}/restore', [BookingController::class, 'restore']);
-    Route::put('/{id}/status', [BookingController::class, 'updateStatus']);
-});
-
 // Shipping Lines Route Group  
 Route::prefix('shipping-lines')->group(function () {  
     Route::get('/', [ShippingLineController::class, 'index']);  
@@ -98,4 +86,15 @@ Route::prefix('shipping-lines')->group(function () {
     Route::delete('/{id}', [ShippingLineController::class, 'destroy']);  
     Route::post('/bulk-delete', [ShippingLineController::class, 'bulkDestroy']);  
     Route::post('/{id}/restore', [ShippingLineController::class, 'restore']);
+});
+
+// Bookings Route Group
+Route::prefix('bookings')->group(function () {
+    Route::get('/', [BookingController::class, 'index']);
+    Route::post('/', [BookingController::class, 'store']);
+    Route::get('/{id}', [BookingController::class, 'show']);
+    Route::put('/{id}', [BookingController::class, 'update']);
+    Route::delete('/{id}', [BookingController::class, 'destroy']);
+    Route::post('/bulk-delete', [BookingController::class, 'bulkDestroy']);
+    Route::post('/{id}/restore', [BookingController::class, 'restore']);
 });

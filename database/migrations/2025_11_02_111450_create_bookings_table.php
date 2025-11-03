@@ -15,39 +15,48 @@ return new class extends Migration
             $table->string('first_name');
             $table->string('last_name');
             $table->string('email');
-            $table->string('contact_number');
+            $table->string('contact_number')->nullable();
             
             // Shipper Information
             $table->string('shipper_first_name');
             $table->string('shipper_last_name');
-            $table->string('shipper_contact');
+            $table->string('shipper_contact')->nullable();
             
             // Consignee Information
             $table->string('consignee_first_name');
             $table->string('consignee_last_name');
-            $table->string('consignee_contact');
+            $table->string('consignee_contact')->nullable();
             
-            // Shipping Preferences
+            // Shipping Details
             $table->string('mode_of_service');
-            $table->string('container_size');
-            $table->string('origin');
-            $table->string('destination');
-            $table->string('shipping_line')->nullable();
+            $table->foreignId('container_size_id')->constrained('container_types');
+            $table->integer('container_quantity')->default(1);
+            $table->foreignId('origin_id')->constrained('ports');
+            $table->foreignId('destination_id')->constrained('ports');
+            $table->foreignId('shipping_line_id')->nullable()->constrained('shipping_lines');
+            
+            // Dates
             $table->date('departure_date');
             $table->date('delivery_date')->nullable();
             
-            // Location data (JSON for flexibility)
+            // Terms
+            $table->integer('terms')->default(0);
+            
+            // Location data
             $table->json('pickup_location')->nullable();
             $table->json('delivery_location')->nullable();
             
-            // Items data (JSON array)
-            $table->json('items');
-            
-            // Status and soft delete
+            // Status fields
+            $table->enum('booking_status', ['pending', 'in_transit', 'delivered'])->default('pending');
             $table->enum('status', ['pending', 'approved', 'rejected'])->default('pending');
             $table->boolean('is_deleted')->default(false);
             
             $table->timestamps();
+            
+            // Indexes
+            $table->index(['status', 'booking_status']);
+            $table->index('email');
+            $table->index('is_deleted');
         });
     }
 
