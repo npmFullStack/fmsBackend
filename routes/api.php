@@ -31,16 +31,6 @@ Route::prefix('container-types')->group(function () {
     Route::post('/{id}/restore', [ContainerTypeController::class, 'restore']);
 });
 
-// Items Route Group
-Route::prefix('items')->group(function () {
-    Route::get('/', [ItemController::class, 'index']);
-    Route::post('/', [ItemController::class, 'store']);
-    Route::get('/{id}', [ItemController::class, 'show']);
-    Route::put('/{id}', [ItemController::class, 'update']);
-    Route::delete('/{id}', [ItemController::class, 'destroy']);
-    Route::post('/bulk-delete', [ItemController::class, 'bulkDestroy']);
-    Route::post('/{id}/restore', [ItemController::class, 'restore']);
-});
 
 // Ports Route Group
 Route::prefix('ports')->group(function () {
@@ -77,17 +67,6 @@ Route::prefix('ship-routes')->group(function () {
     Route::get('/find/route', [ShipRouteController::class, 'getRouteBetweenPorts']);
 });
 
-// Shipping Lines Route Group  
-Route::prefix('shipping-lines')->group(function () {  
-    Route::get('/', [ShippingLineController::class, 'index']);  
-    Route::post('/', [ShippingLineController::class, 'store']);  
-    Route::get('/{id}', [ShippingLineController::class, 'show']);  
-    Route::put('/{id}', [ShippingLineController::class, 'update']);  
-    Route::delete('/{id}', [ShippingLineController::class, 'destroy']);  
-    Route::post('/bulk-delete', [ShippingLineController::class, 'bulkDestroy']);  
-    Route::post('/{id}/restore', [ShippingLineController::class, 'restore']);
-});
-
 // Bookings Route Group
 Route::prefix('bookings')->group(function () {
     Route::get('/', [BookingController::class, 'index']);
@@ -97,4 +76,6 @@ Route::prefix('bookings')->group(function () {
     Route::delete('/{id}', [BookingController::class, 'destroy']);
     Route::post('/bulk-delete', [BookingController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [BookingController::class, 'restore']);
+    // Add approval route
+    Route::post('/{id}/approve', [BookingController::class, 'approveBooking']);
 });

@@ -11,6 +11,12 @@ return new class extends Migration
         Schema::create('bookings', function (Blueprint $table) {
             $table->id();
             
+            // User association
+            $table->foreignId('user_id')
+                  ->nullable()
+                  ->constrained('users')
+                  ->onDelete('set null');
+            
             // Personal Information
             $table->string('first_name');
             $table->string('last_name');
@@ -57,6 +63,7 @@ return new class extends Migration
             $table->index(['status', 'booking_status']);
             $table->index('email');
             $table->index('is_deleted');
+            $table->index('user_id'); // Added index for user_id
         });
     }
 

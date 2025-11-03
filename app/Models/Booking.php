@@ -28,12 +28,14 @@ class Booking extends Model
         'shipping_line_id',
         'departure_date',
         'delivery_date',
-        'terms', // Added terms field
+        'terms',
         'pickup_location',
         'delivery_location',
         'booking_status',
         'status',
-        'is_deleted'
+        'is_deleted',
+        // Only user_id needed
+        'user_id'
     ];
 
     protected $casts = [
@@ -42,7 +44,7 @@ class Booking extends Model
         'departure_date' => 'date',
         'delivery_date' => 'date',
         'container_quantity' => 'integer',
-        'terms' => 'integer', // Added terms cast
+        'terms' => 'integer',
         'is_deleted' => 'boolean'
     ];
 
@@ -72,6 +74,12 @@ class Booking extends Model
         return $this->hasMany(BookingItem::class);
     }
 
+    // New relationship with User
+    public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
     // Scopes
     public function scopeNotDeleted($query)
     {
@@ -88,11 +96,29 @@ class Booking extends Model
         return $query->where('status', 'approved');
     }
 
+    // New scope for bookings without users
+    public function scopeWithoutUser($query)
+    {
+        return $query->whereNull('user_id');
+    }
+
+    // New scope for bookings with users
+    public function scopeWithUser($query)
+    {
+        return $query->whereNotNull('user_id');
+    }
+
     // Calculate total weight from items
     public function getTotalWeightAttribute()
     {
         return $this->items->sum(function ($item) {
             return $item->weight * $item->quantity;
         });
+    }
+
+    // Check if booking is associated with a user
+    public function getHasUserAttribute()
+    {
+        return !is_null($this->user_id);
     }
 }

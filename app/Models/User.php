@@ -17,9 +17,12 @@ class User extends Authenticatable
      * @var list<string>
      */
     protected $fillable = [
-        'name',
+        'first_name',
+        'last_name',
         'email',
+        'contact_number',
         'password',
+        'is_deleted',
     ];
 
     /**
@@ -42,6 +45,31 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_deleted' => 'boolean',
         ];
+    }
+
+    /**
+     * Scope to get only non-deleted users
+     */
+    public function scopeNotDeleted($query)
+    {
+        return $query->where('is_deleted', false);
+    }
+
+    /**
+     * Get the user's full name
+     */
+    public function getFullNameAttribute()
+    {
+        return "{$this->first_name} {$this->last_name}";
+    }
+
+    /**
+     * Relationship with bookings
+     */
+    public function bookings()
+    {
+        return $this->hasMany(Booking::class);
     }
 }

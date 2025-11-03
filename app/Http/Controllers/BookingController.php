@@ -4,8 +4,12 @@ namespace App\Http\Controllers;
 
 use App\Models\Booking;
 use App\Models\BookingItem;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Str;
 
 class BookingController extends Controller
 {
@@ -14,7 +18,7 @@ class BookingController extends Controller
         $perPage = $request->get('per_page', 10);
         $search = $request->get('search', '');
 
-        $query = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'items'])
+        $query = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'items', 'user'])
             ->notDeleted();
 
         if (!empty($search)) {
@@ -82,11 +86,15 @@ class BookingController extends Controller
                 'items.*.category' => 'required|string',
             ]);
 
+            // Check if user exists with this email
+            $user = User::where('email', $validated['email'])->first();
+
             // Create booking
             $booking = Booking::create(array_merge($validated, [
                 'booking_status' => 'pending',
                 'status' => 'pending',
-                'is_deleted' => false
+                'is_deleted' => false,
+                'user_id' => $user ? $user->id : null, // Associate with existing user if found
             ]));
 
             // Create booking items
@@ -118,7 +126,7 @@ class BookingController extends Controller
 
     public function show($id)
     {
-        $booking = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'items'])
+        $booking = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'items', 'user'])
             ->notDeleted()
             ->find($id);
 
@@ -151,6 +159,94 @@ class BookingController extends Controller
 
         return response()->json($booking);
     }
+
+    public function approveBooking(Request $request, $id)
+    {
+        DB::beginTransaction();
+        
+        try {
+            $booking = Booking::notDeleted()->find($id);
+            
+            if (!$booking) {
+                return response()->json(['message' => 'Booking not found'], 404);
+            }
+
+            if ($booking->status === 'approved') {
+                return response()->json(['message' => 'Booking is already approved'], 400);
+            }
+
+            // Generate random password
+            $password = Str::random(8); // 8-character random password
+            
+            // Find or create user
+            $user = User::where('email', $booking->email)->first();
+            
+            if (!$user) {
+                // Create new user
+                $user = User::create([
+                    'first_name' => $booking->first_name,
+                    'last_name' => $booking->last_name,
+                    'email' => $booking->email,
+                    'contact_number' => $booking->contact_number,
+                    'password' => Hash::make($password),
+                    'email_verified_at' => now(),
+                    'is_deleted' => false,
+                ]);
+            } else {
+                // Update existing user's password
+                $user->update([
+                    'password' => Hash::make($password),
+                    'is_deleted' => false, // Ensure user is active
+                ]);
+            }
+
+            // Update booking
+            $booking->update([
+                'user_id' => $user->id,
+                'status' => 'approved',
+                'booking_status' => 'in_transit', // Or whatever status you prefer
+            ]);
+
+            // Send email with password
+            $this->sendApprovalEmail($booking, $password);
+
+            DB::commit();
+            
+            return response()->json([
+                'message' => 'Booking approved successfully. Password sent to customer.',
+                'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'items'])
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to approve booking',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    private function sendApprovalEmail($booking, $password)
+{
+    try {
+        Mail::to($booking->email)->send(new \App\Mail\BookingApproved($booking, $password));
+        
+        \Log::info('Approval email sent successfully', [
+            'to' => $booking->email,
+            'booking_id' => $booking->id
+        ]);
+        
+    } catch (\Exception $e) {
+        \Log::error('Failed to send approval email: ' . $e->getMessage(), [
+            'to' => $booking->email,
+            'booking_id' => $booking->id,
+            'error' => $e->getMessage()
+        ]);
+        
+        // You can choose to throw the exception or just log it
+        // throw $e;
+    }
+}
 
     public function destroy($id)
     {
