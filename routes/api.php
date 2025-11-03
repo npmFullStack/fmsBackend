@@ -1,6 +1,7 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\AuthController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ContainerTypeController;
 use App\Http\Controllers\ItemController;
@@ -8,6 +9,13 @@ use App\Http\Controllers\PortController;
 use App\Http\Controllers\ShipRouteController;
 use App\Http\Controllers\ShippingLineController;
 use App\Http\Controllers\BookingController;
+
+
+Route::prefix('auth')->group(function () {
+    Route::post('/login', [AuthController::class, 'login']);
+    Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
+    Route::get('/user', [AuthController::class, 'user'])->middleware('auth:sanctum');
+});
 
 // Category Route Group
 Route::prefix('categories')->group(function () {
