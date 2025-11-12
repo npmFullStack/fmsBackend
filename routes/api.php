@@ -6,6 +6,7 @@ use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ContainerTypeController;
 use App\Http\Controllers\ItemController;
 use App\Http\Controllers\PortController;
+use App\Http\Controllers\TruckCompController;
 use App\Http\Controllers\ShipRouteController;
 use App\Http\Controllers\ShippingLineController;
 use App\Http\Controllers\BookingController;
@@ -49,6 +50,19 @@ Route::prefix('ports')->group(function () {
     Route::delete('/{id}', [PortController::class, 'destroy']);
     Route::post('/bulk-delete', [PortController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [PortController::class, 'restore']);
+});
+
+
+
+//  Truck Companies Route Group
+Route::prefix('truck-comps')->group(function () {
+    Route::get('/', [TruckCompController::class, 'index']);
+    Route::post('/', [TruckCompController::class, 'store']);
+    Route::get('/{id}', [TruckCompController::class, 'show']);
+    Route::put('/{id}', [TruckCompController::class, 'update']);
+    Route::delete('/{id}', [TruckCompController::class, 'destroy']);
+    Route::post('/bulk-delete', [TruckCompController::class, 'bulkDestroy']);
+    Route::post('/{id}/restore', [TruckCompController::class, 'restore']);
 });
 
 // Shipping Lines Route Group
