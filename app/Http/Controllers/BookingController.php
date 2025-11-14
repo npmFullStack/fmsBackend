@@ -18,7 +18,7 @@ class BookingController extends Controller
         $perPage = $request->get('per_page', 10);
         $search = $request->get('search', '');
 
-        $query = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'items', 'user'])
+        $query = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items', 'user'])
             ->notDeleted();
 
         if (!empty($search)) {
@@ -66,6 +66,7 @@ class BookingController extends Controller
                 'origin_id' => 'required|exists:ports,id',
                 'destination_id' => 'required|exists:ports,id',
                 'shipping_line_id' => 'nullable|exists:shipping_lines,id',
+                'truck_comp_id' => 'nullable|exists:truck_comps,id', // Added this line
                 
                 // Dates
                 'departure_date' => 'required|date',
@@ -112,7 +113,7 @@ class BookingController extends Controller
 
             return response()->json([
                 'message' => 'Booking created successfully',
-                'booking' => $booking->load('items')
+                'booking' => $booking->load(['items', 'truckComp']) // Added truckComp to load
             ], 201);
 
         } catch (\Exception $e) {
@@ -126,7 +127,7 @@ class BookingController extends Controller
 
     public function show($id)
     {
-        $booking = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'items', 'user'])
+        $booking = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items', 'user'])
             ->notDeleted()
             ->find($id);
 
@@ -151,6 +152,7 @@ class BookingController extends Controller
             'first_name' => 'sometimes|string|max:255',
             'last_name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email',
+            'truck_comp_id' => 'nullable|exists:truck_comps,id', // Added this line
             'terms' => 'sometimes|integer|min:1',
             // Add other fields as needed
         ]);
@@ -214,7 +216,7 @@ class BookingController extends Controller
             
             return response()->json([
                 'message' => 'Booking approved successfully. Password sent to customer.',
-                'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'items'])
+                'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items']) // Added truckComp
             ]);
 
         } catch (\Exception $e) {
@@ -227,26 +229,26 @@ class BookingController extends Controller
     }
 
     private function sendApprovalEmail($booking, $password)
-{
-    try {
-        Mail::to($booking->email)->send(new \App\Mail\BookingApproved($booking, $password));
-        
-        \Log::info('Approval email sent successfully', [
-            'to' => $booking->email,
-            'booking_id' => $booking->id
-        ]);
-        
-    } catch (\Exception $e) {
-        \Log::error('Failed to send approval email: ' . $e->getMessage(), [
-            'to' => $booking->email,
-            'booking_id' => $booking->id,
-            'error' => $e->getMessage()
-        ]);
-        
-        // You can choose to throw the exception or just log it
-        // throw $e;
+    {
+        try {
+            Mail::to($booking->email)->send(new \App\Mail\BookingApproved($booking, $password));
+            
+            \Log::info('Approval email sent successfully', [
+                'to' => $booking->email,
+                'booking_id' => $booking->id
+            ]);
+            
+        } catch (\Exception $e) {
+            \Log::error('Failed to send approval email: ' . $e->getMessage(), [
+                'to' => $booking->email,
+                'booking_id' => $booking->id,
+                'error' => $e->getMessage()
+            ]);
+            
+            // You can choose to throw the exception or just log it
+            // throw $e;
+        }
     }
-}
 
     public function destroy($id)
     {

@@ -26,6 +26,7 @@ class Booking extends Model
         'origin_id',
         'destination_id',
         'shipping_line_id',
+        'truck_comp_id', // Added this line
         'departure_date',
         'delivery_date',
         'terms',
@@ -34,7 +35,6 @@ class Booking extends Model
         'booking_status',
         'status',
         'is_deleted',
-        // Only user_id needed
         'user_id'
     ];
 
@@ -67,6 +67,11 @@ class Booking extends Model
     public function shippingLine()
     {
         return $this->belongsTo(ShippingLine::class, 'shipping_line_id');
+    }
+
+    public function truckComp() // Added this relationship
+    {
+        return $this->belongsTo(TruckComp::class, 'truck_comp_id');
     }
 
     public function items()

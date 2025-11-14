@@ -40,6 +40,7 @@ return new class extends Migration
             $table->foreignId('origin_id')->constrained('ports');
             $table->foreignId('destination_id')->constrained('ports');
             $table->foreignId('shipping_line_id')->nullable()->constrained('shipping_lines');
+            $table->foreignId('truck_comp_id')->nullable()->constrained('truck_comps'); // Added this line
             
             // Dates
             $table->date('departure_date');
@@ -63,7 +64,8 @@ return new class extends Migration
             $table->index(['status', 'booking_status']);
             $table->index('email');
             $table->index('is_deleted');
-            $table->index('user_id'); // Added index for user_id
+            $table->index('user_id');
+            $table->index('truck_comp_id');
         });
     }
 
