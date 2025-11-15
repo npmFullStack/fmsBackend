@@ -18,6 +18,7 @@ return new class extends Migration
             $table->string('email')->unique();
             $table->string('contact_number')->nullable();
             $table->string('password');
+            $table->enum('role', ['general_manager', 'admin', 'customer'])->default('customer');
             $table->boolean('is_deleted')->default(false);
             $table->timestamp('email_verified_at')->nullable();
             $table->rememberToken();
@@ -26,6 +27,7 @@ return new class extends Migration
             // Indexes for better performance
             $table->index('email');
             $table->index('is_deleted');
+            $table->index('role');
         });
 
         Schema::create('password_reset_tokens', function (Blueprint $table) {

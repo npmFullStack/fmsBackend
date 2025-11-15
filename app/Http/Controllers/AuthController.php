@@ -39,6 +39,7 @@ class AuthController extends Controller
                 'last_name' => $user->last_name,
                 'email' => $user->email,
                 'contact_number' => $user->contact_number,
+                'role' => $user->role,
                 'full_name' => $user->full_name,
             ],
             'token' => $token,
@@ -67,6 +68,7 @@ class AuthController extends Controller
                 'last_name' => $request->user()->last_name,
                 'email' => $request->user()->email,
                 'contact_number' => $request->user()->contact_number,
+                'role' => $request->user()->role,
                 'full_name' => $request->user()->full_name,
             ]
         ]);
