@@ -13,10 +13,12 @@ use App\Http\Controllers\BookingController;
 
 
 Route::prefix('auth')->group(function () {
+    Route::post('/register', [AuthController::class, 'register']);
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
     Route::get('/user', [AuthController::class, 'user'])->middleware('auth:sanctum');
 });
+
 
 // Category Route Group
 Route::prefix('categories')->group(function () {

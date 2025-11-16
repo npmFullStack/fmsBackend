@@ -47,6 +47,43 @@ class AuthController extends Controller
     }
 
     /**
+     * Register
+     */
+public function register(Request $request)
+{
+    $validated = $request->validate([
+        'first_name' => 'required|string|max:255',
+        'last_name' => 'required|string|max:255',
+        'email' => 'required|email|unique:users,email',
+        'contact_number' => 'nullable|string|max:20',
+        'password' => 'required|confirmed|min:6', // <-- expects password_confirmation
+    ]);
+
+    $user = User::create([
+        'first_name' => $validated['first_name'],
+        'last_name' => $validated['last_name'],
+        'email' => $validated['email'],
+        'contact_number' => $validated['contact_number'] ?? null,
+        'password' => Hash::make($validated['password']),
+    ]);
+
+    $token = $user->createToken('auth-token')->plainTextToken;
+
+    return response()->json([
+        'user' => [
+            'id' => $user->id,
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'email' => $user->email,
+            'contact_number' => $user->contact_number,
+            'role' => $user->role,
+            'full_name' => $user->full_name,
+        ],
+        'token' => $token,
+    ]);
+}
+
+    /**
      * Logout user and revoke token
      */
     public function logout(Request $request)
