@@ -152,9 +152,8 @@ class BookingController extends Controller
             'first_name' => 'sometimes|string|max:255',
             'last_name' => 'sometimes|string|max:255',
             'email' => 'sometimes|email',
-            'truck_comp_id' => 'nullable|exists:truck_comps,id', // Added this line
+            'truck_comp_id' => 'nullable|exists:truck_comps,id',
             'terms' => 'sometimes|integer|min:1',
-            // Add other fields as needed
         ]);
 
         $booking->update($validated);
@@ -163,70 +162,73 @@ class BookingController extends Controller
     }
 
     public function approveBooking(Request $request, $id)
-    {
-        DB::beginTransaction();
-        
-        try {
-            $booking = Booking::notDeleted()->find($id);
-            
-            if (!$booking) {
-                return response()->json(['message' => 'Booking not found'], 404);
-            }
+{
+    DB::beginTransaction();
 
-            if ($booking->status === 'approved') {
-                return response()->json(['message' => 'Booking is already approved'], 400);
-            }
+    try {
+        $booking = Booking::notDeleted()->find($id);
 
-            // Generate random password
-            $password = Str::random(8); // 8-character random password
-            
-            // Find or create user
-            $user = User::where('email', $booking->email)->first();
-            
-            if (!$user) {
-                // Create new user
-                $user = User::create([
-                    'first_name' => $booking->first_name,
-                    'last_name' => $booking->last_name,
-                    'email' => $booking->email,
-                    'contact_number' => $booking->contact_number,
-                    'password' => Hash::make($password),
-                    'email_verified_at' => now(),
-                    'is_deleted' => false,
-                ]);
-            } else {
-                // Update existing user's password
-                $user->update([
-                    'password' => Hash::make($password),
-                    'is_deleted' => false, // Ensure user is active
-                ]);
-            }
-
-            // Update booking
-            $booking->update([
-                'user_id' => $user->id,
-                'status' => 'approved',
-                'booking_status' => 'in_transit', // Or whatever status you prefer
-            ]);
-
-            // Send email with password
-            $this->sendApprovalEmail($booking, $password);
-
-            DB::commit();
-            
-            return response()->json([
-                'message' => 'Booking approved successfully. Password sent to customer.',
-                'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items']) // Added truckComp
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Failed to approve booking',
-                'error' => $e->getMessage()
-            ], 500);
+        if (!$booking) {
+            return response()->json(['message' => 'Booking not found'], 404);
         }
+
+        if ($booking->status === 'approved') {
+            return response()->json(['message' => 'Booking is already approved'], 400);
+        }
+
+        // Generate random password
+        $password = Str::random(8);
+
+        // Find or create user
+        $user = User::where('email', $booking->email)->first();
+
+        if (!$user) {
+            // Create new user
+            $user = User::create([
+                'first_name' => $booking->first_name,
+                'last_name' => $booking->last_name,
+                'email' => $booking->email,
+                'contact_number' => $booking->contact_number,
+                'password' => Hash::make($password),
+                'email_verified_at' => now(),
+                'is_deleted' => false,
+            ]);
+        } else {
+            // Update existing user's password
+            $user->update([
+                'password' => Hash::make($password),
+                'is_deleted' => false,
+            ]);
+        }
+
+        // Generate tracking numbers
+        $booking->generateTrackingNumbers();
+
+        // Update booking
+        $booking->update([
+            'user_id' => $user->id,
+            'status' => 'approved',
+            'booking_status' => 'in_transit',
+        ]);
+
+        // Send email with password
+        $this->sendApprovalEmail($booking, $password);
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Booking approved successfully. Password sent to customer.',
+            'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items'])
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Failed to approve booking',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     private function sendApprovalEmail($booking, $password)
     {

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class Booking extends Model
 {
@@ -26,7 +27,7 @@ class Booking extends Model
         'origin_id',
         'destination_id',
         'shipping_line_id',
-        'truck_comp_id', // Added this line
+        'truck_comp_id',
         'departure_date',
         'delivery_date',
         'terms',
@@ -35,7 +36,10 @@ class Booking extends Model
         'booking_status',
         'status',
         'is_deleted',
-        'user_id'
+        'user_id',
+        'booking_number',
+        'hwb_number',
+        'van_number'
     ];
 
     protected $casts = [
@@ -69,7 +73,7 @@ class Booking extends Model
         return $this->belongsTo(ShippingLine::class, 'shipping_line_id');
     }
 
-    public function truckComp() // Added this relationship
+    public function truckComp()
     {
         return $this->belongsTo(TruckComp::class, 'truck_comp_id');
     }
@@ -79,7 +83,6 @@ class Booking extends Model
         return $this->hasMany(BookingItem::class);
     }
 
-    // New relationship with User
     public function user()
     {
         return $this->belongsTo(User::class);
@@ -101,13 +104,11 @@ class Booking extends Model
         return $query->where('status', 'approved');
     }
 
-    // New scope for bookings without users
     public function scopeWithoutUser($query)
     {
         return $query->whereNull('user_id');
     }
 
-    // New scope for bookings with users
     public function scopeWithUser($query)
     {
         return $query->whereNotNull('user_id');
@@ -125,5 +126,47 @@ class Booking extends Model
     public function getHasUserAttribute()
     {
         return !is_null($this->user_id);
+    }
+
+    // Generate unique booking number
+    public static function generateBookingNumber()
+    {
+        do {
+            $number = str_pad(mt_rand(1, 999999999), 9, '0', STR_PAD_LEFT);
+        } while (self::where('booking_number', $number)->exists());
+
+        return $number;
+    }
+
+    // Generate unique HWB number
+    public static function generateHwbNumber()
+    {
+        do {
+            $number = str_pad(mt_rand(1, 9999), 4, '0', STR_PAD_LEFT);
+        } while (self::where('hwb_number', $number)->exists());
+
+        return $number;
+    }
+
+    // Generate unique van number
+    public static function generateVanNumber()
+    {
+        do {
+            $letters = Str::upper(Str::random(4));
+            $numbers = str_pad(mt_rand(1, 9999999), 7, '0', STR_PAD_LEFT);
+            $vanNumber = $letters . $numbers;
+        } while (self::where('van_number', $vanNumber)->exists());
+
+        return $vanNumber;
+    }
+
+    // Generate all tracking numbers
+    public function generateTrackingNumbers()
+    {
+        $this->update([
+            'booking_number' => self::generateBookingNumber(),
+            'hwb_number' => self::generateHwbNumber(),
+            'van_number' => self::generateVanNumber()
+        ]);
     }
 }

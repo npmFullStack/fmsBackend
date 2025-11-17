@@ -29,7 +29,7 @@ class BookingApproved extends Mailable
                 'first_name' => $booking->first_name,
                 'last_name' => $booking->last_name,
                 'password' => Hash::make($password),
-                'role' => 'customer', // Set as customer
+                'role' => 'customer',
                 'contact_number' => $booking->contact_number,
             ]
         );
