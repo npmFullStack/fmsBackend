@@ -10,6 +10,7 @@ use App\Http\Controllers\TruckCompController;
 use App\Http\Controllers\ShipRouteController;
 use App\Http\Controllers\ShippingLineController;
 use App\Http\Controllers\BookingController;
+use App\Http\Controllers\UserController;
 
 
 Route::prefix('auth')->group(function () {
@@ -102,4 +103,17 @@ Route::prefix('bookings')->group(function () {
     Route::post('/{id}/restore', [BookingController::class, 'restore']);
     // Add approval route
     Route::post('/{id}/approve', [BookingController::class, 'approveBooking']);
+});
+
+
+// Users Route Group
+Route::prefix('users')->group(function () {
+    Route::get('/', [UserController::class, 'index']);
+    Route::post('/', [UserController::class, 'store']);
+    Route::get('/{id}', [UserController::class, 'show']);
+    Route::put('/{id}', [UserController::class, 'update']);
+    Route::delete('/{id}', [UserController::class, 'destroy']);
+    Route::post('/bulk-delete', [UserController::class, 'bulkDestroy']);
+    Route::post('/{id}/restore', [UserController::class, 'restore']);
+    Route::post('/{id}/promote', [UserController::class, 'promote']);
 });
