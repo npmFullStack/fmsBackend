@@ -12,7 +12,7 @@ return new class extends Migration
             $table->id();
             $table->foreignId('booking_id')->constrained()->onDelete('cascade');
             $table->string('name');
-            $table->decimal('weight', 10, 2); // weight in kg
+            $table->decimal('weight', 10, 2);
             $table->integer('quantity');
             $table->string('category');
             $table->timestamps();

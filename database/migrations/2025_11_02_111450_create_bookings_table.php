@@ -48,8 +48,8 @@ return new class extends Migration
             $table->foreignId('truck_comp_id')->nullable()->constrained('truck_comps');
 
             // Dates
-            $table->date('departure_date');
-            $table->date('delivery_date')->nullable();
+$table->date('departure_date')->nullable();
+$table->date('delivery_date')->nullable();
 
             // Terms
             $table->integer('terms')->default(0);

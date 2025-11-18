@@ -66,11 +66,11 @@ class BookingController extends Controller
                 'origin_id' => 'required|exists:ports,id',
                 'destination_id' => 'required|exists:ports,id',
                 'shipping_line_id' => 'nullable|exists:shipping_lines,id',
-                'truck_comp_id' => 'nullable|exists:truck_comps,id', // Added this line
+                'truck_comp_id' => 'nullable|exists:truck_comps,id',
                 
                 // Dates
-                'departure_date' => 'required|date',
-                'delivery_date' => 'nullable|date|after_or_equal:departure_date',
+'departure_date' => 'nullable|date', 
+'delivery_date' => 'nullable|date|after_or_equal:departure_date',
                 
                 // Terms
                 'terms' => 'required|integer|min:1',
