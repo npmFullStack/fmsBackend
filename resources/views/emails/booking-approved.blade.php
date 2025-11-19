@@ -34,8 +34,11 @@
             <p><strong>Booking Details:</strong></p>
             <ul>
                 <li>Service Mode: {{ $booking->mode_of_service }}</li>
-                <li>Departure Date: {{ $booking->departure_date->format('M d, Y') }}</li>
+                <li>Departure Date: {{ $booking->departure_date ? $booking->departure_date->format('M d, Y') : 'To be determined' }}</li>
                 <li>Container Quantity: {{ $booking->container_quantity }}</li>
+                <li>Origin: {{ $booking->origin->route_name ?? 'N/A' }}</li>
+                <li>Destination: {{ $booking->destination->route_name ?? 'N/A' }}</li>
+                <li>Container Size: {{ $booking->containerSize->size ?? 'N/A' }}</li>
             </ul>
             
             <p>Please log in to your account to view complete booking details and track your shipment.</p>

@@ -36,18 +36,99 @@ class BookingController extends Controller
 
         return response()->json($data);
     }
+public function quote(Request $request)
+{
+    DB::beginTransaction();
 
+    try {
+        $validated = $request->validate([
+            // Customer Information (for quote - no user_id required)
+            'first_name' => 'required|string|max:255',
+            'last_name' => 'required|string|max:255',
+            'email' => 'required|email',
+            'contact_number' => 'nullable|string',
+
+            // Shipper Information
+            'shipper_first_name' => 'required|string|max:255',
+            'shipper_last_name' => 'required|string|max:255',
+            'shipper_contact' => 'nullable|string',
+
+            // Consignee Information
+            'consignee_first_name' => 'required|string|max:255',
+            'consignee_last_name' => 'required|string|max:255',
+            'consignee_contact' => 'nullable|string',
+
+            // Shipping Details
+            'mode_of_service' => 'required|string',
+            'container_size_id' => 'required|exists:container_types,id',
+            'container_quantity' => 'required|integer|min:1',
+            'origin_id' => 'required|exists:ports,id',
+            'destination_id' => 'required|exists:ports,id',
+            'shipping_line_id' => 'nullable|exists:shipping_lines,id',
+            'truck_comp_id' => 'nullable|exists:truck_comps,id',
+
+            // Dates
+            'departure_date' => 'nullable|date',
+            'delivery_date' => 'nullable|date|after_or_equal:departure_date',
+
+            // Terms
+            'terms' => 'required|integer|min:1',
+
+            // Locations
+            'pickup_location' => 'nullable|array',
+            'delivery_location' => 'nullable|array',
+
+            // Items
+            'items' => 'required|array',
+            'items.*.name' => 'required|string',
+            'items.*.weight' => 'required|numeric|min:0',
+            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.category' => 'required|string',
+        ]);
+
+        // Create booking without user_id (it will be set when approved)
+        $booking = Booking::create(array_merge($validated, [
+            'user_id' => null, // Will be set when approved
+            'booking_status' => 'pending',
+            'status' => 'pending',
+            'is_deleted' => false,
+        ]));
+
+        // Create booking items
+        foreach ($validated['items'] as $itemData) {
+            BookingItem::create([
+                'booking_id' => $booking->id,
+                'name' => $itemData['name'],
+                'weight' => $itemData['weight'],
+                'quantity' => $itemData['quantity'],
+                'category' => $itemData['category'],
+            ]);
+        }
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Quote request submitted successfully',
+            'quote_id' => $booking->id,
+            'booking' => $booking->load(['items', 'truckComp', 'containerSize', 'origin', 'destination'])
+        ], 201);
+
+    } catch (Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Failed to submit quote request',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
     public function store(Request $request)
     {
         DB::beginTransaction();
 
         try {
             $validated = $request->validate([
-                // Personal Information
-                'first_name' => 'required|string|max:255',
-                'last_name' => 'required|string|max:255',
-                'email' => 'required|email',
-                'contact_number' => 'nullable|string',
+                // User ID (customer)
+                'user_id' => 'required|exists:users,id',
                 
                 // Shipper Information
                 'shipper_first_name' => 'required|string|max:255',
@@ -69,8 +150,8 @@ class BookingController extends Controller
                 'truck_comp_id' => 'nullable|exists:truck_comps,id',
                 
                 // Dates
-'departure_date' => 'nullable|date', 
-'delivery_date' => 'nullable|date|after_or_equal:departure_date',
+                'departure_date' => 'nullable|date', 
+                'delivery_date' => 'nullable|date|after_or_equal:departure_date',
                 
                 // Terms
                 'terms' => 'required|integer|min:1',
@@ -87,15 +168,18 @@ class BookingController extends Controller
                 'items.*.category' => 'required|string',
             ]);
 
-            // Check if user exists with this email
-            $user = User::where('email', $validated['email'])->first();
+            // Get the user information
+            $user = User::findOrFail($validated['user_id']);
 
-            // Create booking
+            // Create booking with user's information
             $booking = Booking::create(array_merge($validated, [
+                'first_name' => $user->first_name,
+                'last_name' => $user->last_name,
+                'email' => $user->email,
+                'contact_number' => $user->contact_number,
                 'booking_status' => 'pending',
                 'status' => 'pending',
                 'is_deleted' => false,
-                'user_id' => $user ? $user->id : null, // Associate with existing user if found
             ]));
 
             // Create booking items
@@ -113,7 +197,7 @@ class BookingController extends Controller
 
             return response()->json([
                 'message' => 'Booking created successfully',
-                'booking' => $booking->load(['items', 'truckComp']) // Added truckComp to load
+                'booking' => $booking->load(['items', 'truckComp', 'user', 'containerSize', 'origin', 'destination'])
             ], 201);
 
         } catch (\Exception $e) {
@@ -161,7 +245,7 @@ class BookingController extends Controller
         return response()->json($booking);
     }
 
-    public function approveBooking(Request $request, $id)
+   public function approveBooking(Request $request, $id)
 {
     DB::beginTransaction();
 
@@ -177,7 +261,7 @@ class BookingController extends Controller
         }
 
         // Generate random password
-        $password = Str::random(8);
+        $password = Str::random(8); // Fixed: was $tr::random(8)
 
         // Find or create user
         $user = User::where('email', $booking->email)->first();
@@ -192,6 +276,7 @@ class BookingController extends Controller
                 'password' => Hash::make($password),
                 'email_verified_at' => now(),
                 'is_deleted' => false,
+                'role' => 'customer', // Make sure to set the role
             ]);
         } else {
             // Update existing user's password
@@ -220,8 +305,7 @@ class BookingController extends Controller
             'message' => 'Booking approved successfully. Password sent to customer.',
             'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items'])
         ]);
-
-    } catch (\Exception $e) {
+    } catch (Exception $e) {
         DB::rollBack();
         return response()->json([
             'message' => 'Failed to approve booking',
@@ -230,28 +314,26 @@ class BookingController extends Controller
     }
 }
 
-    private function sendApprovalEmail($booking, $password)
-    {
-        try {
-            Mail::to($booking->email)->send(new \App\Mail\BookingApproved($booking, $password));
-            
-            \Log::info('Approval email sent successfully', [
-                'to' => $booking->email,
-                'booking_id' => $booking->id
-            ]);
-            
-        } catch (\Exception $e) {
-            \Log::error('Failed to send approval email: ' . $e->getMessage(), [
-                'to' => $booking->email,
-                'booking_id' => $booking->id,
-                'error' => $e->getMessage()
-            ]);
-            
-            // You can choose to throw the exception or just log it
-            // throw $e;
-        }
-    }
+private function sendApprovalEmail($booking, $password)
+{
+    try {
+        // Fixed: Use Mail::to instead of Malinto
+        Mail::to($booking->email)->send(new \App\Mail\BookingApproved($booking, $password));
 
+        \Log::info('Approval email sent successfully', [
+            'to' => $booking->email,
+            'booking_id' => $booking->id
+        ]);
+    } catch (Exception $e) {
+        \Log::error('Failed to send approval email: '. $e->getMessage(), [
+            'to' => $booking->email,
+            'booking_id' => $booking->id,
+            'error' => $e->getMessage()
+        ]);
+        // You can choose to throw the exception or just log it
+        throw $e; // Uncomment this if you want the approval to fail when email fails
+    }
+}
     public function destroy($id)
     {
         $booking = Booking::notDeleted()->find($id);

@@ -95,7 +95,8 @@ Route::prefix('ship-routes')->group(function () {
 // Bookings Route Group
 Route::prefix('bookings')->group(function () {
     Route::get('/', [BookingController::class, 'index']);
-    Route::post('/', [BookingController::class, 'store']);
+    Route::post('/', [BookingController::class, 'store']); // For regular bookings with user
+    Route::post('/quote', [BookingController::class, 'quote']); // For quote requests
     Route::get('/{id}', [BookingController::class, 'show']);
     Route::put('/{id}', [BookingController::class, 'update']);
     Route::delete('/{id}', [BookingController::class, 'destroy']);
@@ -104,7 +105,6 @@ Route::prefix('bookings')->group(function () {
     // Add approval route
     Route::post('/{id}/approve', [BookingController::class, 'approveBooking']);
 });
-
 
 // Users Route Group
 Route::prefix('users')->group(function () {
