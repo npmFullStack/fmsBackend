@@ -122,92 +122,92 @@ public function quote(Request $request)
     }
 }
     public function store(Request $request)
-    {
-        DB::beginTransaction();
+{
+    DB::beginTransaction();
 
-        try {
-            $validated = $request->validate([
-                // User ID (customer)
-                'user_id' => 'required|exists:users,id',
-                
-                // Shipper Information
-                'shipper_first_name' => 'required|string|max:255',
-                'shipper_last_name' => 'required|string|max:255',
-                'shipper_contact' => 'nullable|string',
-                
-                // Consignee Information
-                'consignee_first_name' => 'required|string|max:255',
-                'consignee_last_name' => 'required|string|max:255',
-                'consignee_contact' => 'nullable|string',
-                
-                // Shipping Details
-                'mode_of_service' => 'required|string',
-                'container_size_id' => 'required|exists:container_types,id',
-                'container_quantity' => 'required|integer|min:1',
-                'origin_id' => 'required|exists:ports,id',
-                'destination_id' => 'required|exists:ports,id',
-                'shipping_line_id' => 'nullable|exists:shipping_lines,id',
-                'truck_comp_id' => 'nullable|exists:truck_comps,id',
-                
-                // Dates
-                'departure_date' => 'nullable|date', 
-                'delivery_date' => 'nullable|date|after_or_equal:departure_date',
-                
-                // Terms
-                'terms' => 'required|integer|min:1',
-                
-                // Locations
-                'pickup_location' => 'nullable|array',
-                'delivery_location' => 'nullable|array',
-                
-                // Items
-                'items' => 'required|array',
-                'items.*.name' => 'required|string',
-                'items.*.weight' => 'required|numeric|min:0',
-                'items.*.quantity' => 'required|integer|min:1',
-                'items.*.category' => 'required|string',
+    try {
+        $validated = $request->validate([
+            // User ID (customer)
+            'user_id' => 'required|exists:users,id',
+            
+            // Shipper Information
+            'shipper_first_name' => 'required|string|max:255',
+            'shipper_last_name' => 'required|string|max:255',
+            'shipper_contact' => 'nullable|string',
+            
+            // Consignee Information
+            'consignee_first_name' => 'required|string|max:255',
+            'consignee_last_name' => 'required|string|max:255',
+            'consignee_contact' => 'nullable|string',
+            
+            // Shipping Details
+            'mode_of_service' => 'required|string',
+            'container_size_id' => 'required|exists:container_types,id',
+            'container_quantity' => 'required|integer|min:1',
+            'origin_id' => 'required|exists:ports,id',
+            'destination_id' => 'required|exists:ports,id',
+            'shipping_line_id' => 'nullable|exists:shipping_lines,id',
+            'truck_comp_id' => 'nullable|exists:truck_comps,id',
+            
+            // Dates
+            'departure_date' => 'nullable|date', 
+            'delivery_date' => 'nullable|date|after_or_equal:departure_date',
+            
+            // Terms
+            'terms' => 'required|integer|min:1',
+            
+            // Locations
+            'pickup_location' => 'nullable|array',
+            'delivery_location' => 'nullable|array',
+            
+            // Items
+            'items' => 'required|array',
+            'items.*.name' => 'required|string',
+            'items.*.weight' => 'required|numeric|min:0',
+            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.category' => 'required|string',
+        ]);
+
+        // Get the user information
+        $user = User::findOrFail($validated['user_id']);
+
+        // Create booking with user's information - SET STATUS AS APPROVED
+        $booking = Booking::create(array_merge($validated, [
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'email' => $user->email,
+            'contact_number' => $user->contact_number,
+            'booking_status' => 'in_transit', // Set to in_transit since it's approved
+            'status' => 'approved', // Set to approved by default
+            'is_deleted' => false,
+        ]));
+
+        // Create booking items
+        foreach ($validated['items'] as $itemData) {
+            BookingItem::create([
+                'booking_id' => $booking->id,
+                'name' => $itemData['name'],
+                'weight' => $itemData['weight'],
+                'quantity' => $itemData['quantity'],
+                'category' => $itemData['category'],
             ]);
-
-            // Get the user information
-            $user = User::findOrFail($validated['user_id']);
-
-            // Create booking with user's information
-            $booking = Booking::create(array_merge($validated, [
-                'first_name' => $user->first_name,
-                'last_name' => $user->last_name,
-                'email' => $user->email,
-                'contact_number' => $user->contact_number,
-                'booking_status' => 'pending',
-                'status' => 'pending',
-                'is_deleted' => false,
-            ]));
-
-            // Create booking items
-            foreach ($validated['items'] as $itemData) {
-                BookingItem::create([
-                    'booking_id' => $booking->id,
-                    'name' => $itemData['name'],
-                    'weight' => $itemData['weight'],
-                    'quantity' => $itemData['quantity'],
-                    'category' => $itemData['category'],
-                ]);
-            }
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Booking created successfully',
-                'booking' => $booking->load(['items', 'truckComp', 'user', 'containerSize', 'origin', 'destination'])
-            ], 201);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Failed to create booking',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Booking created successfully',
+            'booking' => $booking->load(['items', 'truckComp', 'user', 'containerSize', 'origin', 'destination'])
+        ], 201);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Failed to create booking',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     public function show($id)
     {
