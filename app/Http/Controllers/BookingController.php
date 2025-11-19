@@ -171,12 +171,20 @@ public function quote(Request $request)
         // Get the user information
         $user = User::findOrFail($validated['user_id']);
 
-        // Create booking with user's information - SET STATUS AS APPROVED
+        // Generate tracking numbers
+        $bookingNumber = Booking::generateBookingNumber();
+        $hwbNumber = Booking::generateHwbNumber();
+        $vanNumber = Booking::generateVanNumber();
+
+        // Create booking with user's information and tracking numbers
         $booking = Booking::create(array_merge($validated, [
             'first_name' => $user->first_name,
             'last_name' => $user->last_name,
             'email' => $user->email,
             'contact_number' => $user->contact_number,
+            'booking_number' => $bookingNumber,
+            'hwb_number' => $hwbNumber,
+            'van_number' => $vanNumber,
             'booking_status' => 'in_transit', // Set to in_transit since it's approved
             'status' => 'approved', // Set to approved by default
             'is_deleted' => false,
