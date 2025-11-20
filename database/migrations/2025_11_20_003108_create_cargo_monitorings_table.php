@@ -32,11 +32,15 @@ return new class extends Migration
                 'Delivered'
             ])->default('Pending');
             
+            // Add is_deleted for soft deletion
+            $table->boolean('is_deleted')->default(false);
+            
             $table->timestamps();
             
             // Indexes
             $table->index('booking_id');
             $table->index('current_status');
+            $table->index('is_deleted'); // Add index for is_deleted
         });
     }
 

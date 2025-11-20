@@ -4,7 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CargoMonitoring;
 use Illuminate\Http\Request;
-use Carbon\Carbon; // Add this import
+use Carbon\Carbon;
 
 class CargoMonitoringController extends Controller
 {
@@ -18,14 +18,19 @@ class CargoMonitoringController extends Controller
             $search = $request->get('search', '');
             
             $query = CargoMonitoring::with([
-                'booking', 
+                'booking' => function($query) {
+                    $query->notDeleted();
+                }, 
                 'booking.containerSize', 
                 'booking.origin', 
                 'booking.destination', 
                 'booking.items',
                 'booking.shippingLine',
                 'booking.truckComp'
-            ]);
+            ])->notDeleted() // Only non-deleted cargo records
+              ->whereHas('booking', function($query) {
+                  $query->notDeleted(); // Only cargo records with non-deleted bookings
+              });
 
             // Apply search filter
             if (!empty($search)) {
@@ -72,12 +77,18 @@ class CargoMonitoringController extends Controller
     {
         try {
             $cargoMonitoring = CargoMonitoring::with([
-                'booking', 
+                'booking' => function($query) {
+                    $query->notDeleted();
+                }, 
                 'booking.containerSize', 
                 'booking.origin', 
                 'booking.destination', 
                 'booking.items'
-            ])->where('booking_id', $bookingId)->first();
+            ])->notDeleted()
+              ->where('booking_id', $bookingId)
+              ->whereHas('booking', function($query) {
+                  $query->notDeleted();
+              })->first();
 
             if (!$cargoMonitoring) {
                 return response()->json([
@@ -102,12 +113,17 @@ class CargoMonitoringController extends Controller
     {
         try {
             $cargoMonitoring = CargoMonitoring::with([
-                'booking', 
+                'booking' => function($query) {
+                    $query->notDeleted();
+                }, 
                 'booking.containerSize', 
                 'booking.origin', 
                 'booking.destination', 
                 'booking.items'
-            ])->find($id);
+            ])->notDeleted()
+              ->whereHas('booking', function($query) {
+                  $query->notDeleted();
+              })->find($id);
 
             if (!$cargoMonitoring) {
                 return response()->json([
@@ -128,51 +144,54 @@ class CargoMonitoringController extends Controller
     /**
      * Update the cargo status.
      */
-     public function updateStatus(Request $request, $id)
-{
-    $request->validate([
-        'status' => 'required|string',
-        'timestamp' => 'nullable|date'
-    ]);
-
-    $cargoMonitoring = CargoMonitoring::findOrFail($id);
-    
-    $timestamp = $request->timestamp ? Carbon::parse($request->timestamp) : now();
-    
-    // Update the specific status field based on the status
-    $statusFieldMap = [
-        'Picked Up' => 'picked_up_at',
-        'Origin Port' => 'origin_port_at',
-        'In Transit' => 'in_transit_at',
-        'Destination Port' => 'destination_port_at',
-        'Out for Delivery' => 'out_for_delivery_at',
-        'Delivered' => 'delivered_at'
-    ];
-
-    if (isset($statusFieldMap[$request->status])) {
-        $field = $statusFieldMap[$request->status];
-        $cargoMonitoring->update([
-            $field => $timestamp,
-            'current_status' => $request->status
+    public function updateStatus(Request $request, $id)
+    {
+        $request->validate([
+            'status' => 'required|string',
+            'timestamp' => 'nullable|date'
         ]);
 
-        // SYNC WITH BOOKING STATUS
-        $bookingStatusMap = [
-            'Picked Up' => 'in_transit',
-            'Origin Port' => 'in_transit', 
-            'In Transit' => 'in_transit',
-            'Destination Port' => 'in_transit',
-            'Out for Delivery' => 'in_transit',
-            'Delivered' => 'delivered'
+        $cargoMonitoring = CargoMonitoring::notDeleted()
+            ->whereHas('booking', function($query) {
+                $query->notDeleted();
+            })->findOrFail($id);
+        
+        $timestamp = $request->timestamp ? Carbon::parse($request->timestamp) : now();
+        
+        // Update the specific status field based on the status
+        $statusFieldMap = [
+            'Picked Up' => 'picked_up_at',
+            'Origin Port' => 'origin_port_at',
+            'In Transit' => 'in_transit_at',
+            'Destination Port' => 'destination_port_at',
+            'Out for Delivery' => 'out_for_delivery_at',
+            'Delivered' => 'delivered_at'
         ];
 
-        if (isset($bookingStatusMap[$request->status])) {
-            $cargoMonitoring->booking->update([
-                'booking_status' => $bookingStatusMap[$request->status]
+        if (isset($statusFieldMap[$request->status])) {
+            $field = $statusFieldMap[$request->status];
+            $cargoMonitoring->update([
+                $field => $timestamp,
+                'current_status' => $request->status
             ]);
-        }
-    }
 
-    return response()->json($cargoMonitoring);
-}
+            // SYNC WITH BOOKING STATUS
+            $bookingStatusMap = [
+                'Picked Up' => 'in_transit',
+                'Origin Port' => 'in_transit', 
+                'In Transit' => 'in_transit',
+                'Destination Port' => 'in_transit',
+                'Out for Delivery' => 'in_transit',
+                'Delivered' => 'delivered'
+            ];
+
+            if (isset($bookingStatusMap[$request->status])) {
+                $cargoMonitoring->booking->update([
+                    'booking_status' => $bookingStatusMap[$request->status]
+                ]);
+            }
+        }
+
+        return response()->json($cargoMonitoring);
+    }
 }

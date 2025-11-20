@@ -18,7 +18,8 @@ class CargoMonitoring extends Model
         'destination_port_at',
         'out_for_delivery_at',
         'delivered_at',
-        'current_status'
+        'current_status',
+        'is_deleted'
     ];
 
     protected $casts = [
@@ -29,7 +30,14 @@ class CargoMonitoring extends Model
         'destination_port_at' => 'datetime',
         'out_for_delivery_at' => 'datetime',
         'delivered_at' => 'datetime',
+        'is_deleted' => 'boolean'
     ];
+
+    // Scopes
+    public function scopeNotDeleted($query)
+    {
+        return $query->where('is_deleted', false);
+    }
 
     // Relationships
     public function booking()
