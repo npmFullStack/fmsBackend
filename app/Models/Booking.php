@@ -52,18 +52,73 @@ class Booking extends Model
         'is_deleted' => 'boolean'
     ];
 
+    protected static function boot()
+    {
+        parent::boot();
+
+        // When a booking is soft deleted, also soft delete related records
+        static::updated(function ($booking) {
+            // When booking is deleted
+            if ($booking->is_deleted && !$booking->getOriginal('is_deleted')) {
+                // Delete associated AP record
+                $ap = $booking->accountsPayable;
+                if ($ap) {
+                    $ap->update(['is_deleted' => true]);
+
+                    // Delete all associated charges
+                    if ($ap->freightCharge) {
+                        $ap->freightCharge->update(['is_deleted' => true]);
+                    }
+                    
+                    $ap->truckingCharges()->update(['is_deleted' => true]);
+                    $ap->portCharges()->update(['is_deleted' => true]);
+                    $ap->miscCharges()->update(['is_deleted' => true]);
+                }
+
+                // Delete cargo monitoring record
+                if ($booking->cargoMonitoring) {
+                    $booking->cargoMonitoring->update(['is_deleted' => true]);
+                }
+            }
+
+            // When booking is restored
+            if (!$booking->is_deleted && $booking->getOriginal('is_deleted')) {
+                // Restore associated AP record
+                $ap = AccountsPayable::where('booking_id', $booking->id)->first();
+                if ($ap) {
+                    $ap->update(['is_deleted' => false]);
+
+                    // Restore all associated charges
+                    if ($ap->freightCharge) {
+                        $ap->freightCharge->update(['is_deleted' => false]);
+                    }
+                    
+                    $ap->truckingCharges()->update(['is_deleted' => false]);
+                    $ap->portCharges()->update(['is_deleted' => false]);
+                    $ap->miscCharges()->update(['is_deleted' => false]);
+                }
+
+                // Restore cargo monitoring record
+                $cargoMonitoring = CargoMonitoring::where('booking_id', $booking->id)->first();
+                if ($cargoMonitoring) {
+                    $cargoMonitoring->update(['is_deleted' => false]);
+                }
+            }
+        });
+    }
+
     // Relationships
     public function containerSize()
     {
         return $this->belongsTo(ContainerType::class, 'container_size_id');
     }
 
-public function cargoMonitoring()
-{
-    return $this->hasOne(CargoMonitoring::class);
-}
+    public function cargoMonitoring()
+    {
+        return $this->hasOne(CargoMonitoring::class);
+    }
 
-public function accountsPayable()
+    public function accountsPayable()
     {
         return $this->hasOne(AccountsPayable::class);
     }

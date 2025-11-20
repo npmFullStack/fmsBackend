@@ -14,57 +14,72 @@ use Illuminate\Support\Facades\DB;
 
 class AccountsPayableController extends Controller
 {
-    public function index(Request $request)
-    {
-        $perPage = $request->get('per_page', 10);
-        $search = $request->get('search', '');
 
-        $query = AccountsPayable::with([
-            'booking',
-            'booking.containerSize',
-            'booking.origin',
-            'booking.destination',
-            'freightCharge',
-            'truckingCharges',
-            'portCharges',
-            'miscCharges'
-        ])->notDeleted();
 
-        if (!empty($search)) {
-            $query->where(function($q) use ($search) {
-                $q->where('total_expenses', 'like', '%' . $search . '%')
-                  ->orWhereHas('booking', function($q) use ($search) {
-                      $q->where('booking_number', 'like', '%' . $search . '%')
-                        ->orWhere('first_name', 'like', '%' . $search . '%')
-                        ->orWhere('last_name', 'like', '%' . $search . '%');
-                  })
-                  ->orWhereHas('freightCharge', function($q) use ($search) {
-                      $q->where('voucher_number', 'like', '%' . $search . '%');
-                  })
-                  ->orWhereHas('truckingCharges', function($q) use ($search) {
-                      $q->where('voucher_number', 'like', '%' . $search . '%');
-                  })
-                  ->orWhereHas('portCharges', function($q) use ($search) {
-                      $q->where('voucher_number', 'like', '%' . $search . '%');
-                  })
-                  ->orWhereHas('miscCharges', function($q) use ($search) {
-                      $q->where('voucher_number', 'like', '%' . $search . '%');
-                  });
-            });
+public function index(Request $request)
+{
+    $perPage = $request->get('per_page', 10);
+    $search = $request->get('search', '');
+
+    $query = AccountsPayable::with([
+        'booking' => function($query) {
+            $query->notDeleted(); // Only load non-deleted bookings
+        },
+        'booking.containerSize',
+        'booking.origin',
+        'booking.destination',
+        'freightCharge' => function($query) {
+            $query->notDeleted(); // Only load non-deleted charges
+        },
+        'truckingCharges' => function($query) {
+            $query->notDeleted(); // Only load non-deleted charges
+        },
+        'portCharges' => function($query) {
+            $query->notDeleted(); // Only load non-deleted charges
+        },
+        'miscCharges' => function($query) {
+            $query->notDeleted(); // Only load non-deleted charges
         }
+    ])->notDeleted()
+      ->whereHas('booking', function($query) {
+          $query->notDeleted(); // This is the key - only AP records with non-deleted bookings
+      });
 
-        // Filter by payment status
-        if ($request->has('is_paid')) {
-            $query->where('is_paid', $request->get('is_paid'));
-        }
-
-        $sort = $request->get('sort', 'id');
-        $direction = $request->get('direction', 'desc');
-
-        $data = $query->orderBy($sort, $direction)->paginate($perPage);
-
-        return response()->json($data);
+    if (!empty($search)) {
+        $query->where(function($q) use ($search) {
+            $q->where('total_expenses', 'like', '%' . $search . '%')
+              ->orWhereHas('booking', function($q) use ($search) {
+                  $q->where('booking_number', 'like', '%' . $search . '%')
+                    ->orWhere('first_name', 'like', '%' . $search . '%')
+                    ->orWhere('last_name', 'like', '%' . $search . '%');
+              })
+              ->orWhereHas('freightCharge', function($q) use ($search) {
+                  $q->where('voucher_number', 'like', '%' . $search . '%');
+              })
+              ->orWhereHas('truckingCharges', function($q) use ($search) {
+                  $q->where('voucher_number', 'like', '%' . $search . '%');
+              })
+              ->orWhereHas('portCharges', function($q) use ($search) {
+                  $q->where('voucher_number', 'like', '%' . $search . '%');
+              })
+              ->orWhereHas('miscCharges', function($q) use ($search) {
+                  $q->where('voucher_number', 'like', '%' . $search . '%');
+              });
+        });
     }
+
+    // Filter by payment status
+    if ($request->has('is_paid')) {
+        $query->where('is_paid', $request->get('is_paid'));
+    }
+
+    $sort = $request->get('sort', 'id');
+    $direction = $request->get('direction', 'desc');
+
+    $data = $query->orderBy($sort, $direction)->paginate($perPage);
+
+    return response()->json($data);
+}
 
     public function store(Request $request)
 {
@@ -177,15 +192,15 @@ class AccountsPayableController extends Controller
                 'is_deleted' => false,
             ]);
         } else {
-            // Update existing freight charge (add to existing amount)
+            // ✅ REPLACE existing amount instead of adding
             $existingFreight->update([
-                'amount' => $existingFreight->amount + $validated['freight_charge']['amount'],
+                'amount' => $validated['freight_charge']['amount'], // ← Replace, don't add
                 'check_date' => $validated['freight_charge']['check_date'] ?? $existingFreight->check_date,
             ]);
         }
     }
 
-    // Add trucking charges - UPDATE existing ones instead of creating duplicates
+    // Add trucking charges - REPLACE existing ones
     if (isset($validated['trucking_charges'])) {
         foreach ($validated['trucking_charges'] as $truckingCharge) {
             if ($truckingCharge['amount'] > 0) {
@@ -196,9 +211,9 @@ class AccountsPayableController extends Controller
                     ->first();
 
                 if ($existingTrucking) {
-                    // Update existing charge (add to existing amount)
+                    // ✅ REPLACE existing charge amount
                     $existingTrucking->update([
-                        'amount' => $existingTrucking->amount + $truckingCharge['amount'],
+                        'amount' => $truckingCharge['amount'], // ← Replace, don't add
                         'check_date' => $truckingCharge['check_date'] ?? $existingTrucking->check_date,
                     ]);
                 } else {
@@ -218,98 +233,41 @@ class AccountsPayableController extends Controller
         }
     }
 
-    // Add port charges - UPDATE existing ones instead of creating duplicates
-    if (isset($validated['port_charges'])) {
-        foreach ($validated['port_charges'] as $portCharge) {
-            if ($portCharge['amount'] > 0) {
-                // Find existing port charge of the same type
-                $existingPort = ApPortCharge::where('ap_id', $ap->id)
-                    ->where('charge_type', $portCharge['charge_type'])
-                    ->where('is_deleted', false)
-                    ->first();
 
-                if ($existingPort) {
-                    // Update existing charge (add to existing amount)
-                    $existingPort->update([
-                        'amount' => $existingPort->amount + $portCharge['amount'],
-                        'payee' => $portCharge['payee'] ?? $existingPort->payee,
-                        'check_date' => $portCharge['check_date'] ?? $existingPort->check_date,
-                    ]);
-                } else {
-                    // Create new port charge only if none exists for this type
-                    ApPortCharge::create([
-                        'ap_id' => $ap->id,
-                        'voucher_number' => AccountsPayable::generateChargeVoucherNumber('PRT'),
-                        'charge_type' => $portCharge['charge_type'],
-                        'payee' => $portCharge['payee'] ?? null,
-                        'amount' => $portCharge['amount'],
-                        'check_date' => $portCharge['check_date'] ?? null,
-                        'voucher' => null,
-                        'is_paid' => false,
-                        'is_deleted' => false,
-                    ]);
-                }
-            }
-        }
-    }
-
-    // Add misc charges - UPDATE existing ones instead of creating duplicates
-    if (isset($validated['misc_charges'])) {
-        foreach ($validated['misc_charges'] as $miscCharge) {
-            if ($miscCharge['amount'] > 0) {
-                // Find existing misc charge of the same type
-                $existingMisc = ApMiscCharge::where('ap_id', $ap->id)
-                    ->where('charge_type', $miscCharge['charge_type'])
-                    ->where('is_deleted', false)
-                    ->first();
-
-                if ($existingMisc) {
-                    // Update existing charge (add to existing amount)
-                    $existingMisc->update([
-                        'amount' => $existingMisc->amount + $miscCharge['amount'],
-                        'payee' => $miscCharge['payee'] ?? $existingMisc->payee,
-                        'check_date' => $miscCharge['check_date'] ?? $existingMisc->check_date,
-                    ]);
-                } else {
-                    // Create new misc charge only if none exists for this type
-                    ApMiscCharge::create([
-                        'ap_id' => $ap->id,
-                        'voucher_number' => AccountsPayable::generateChargeVoucherNumber('MSC'),
-                        'charge_type' => $miscCharge['charge_type'],
-                        'payee' => $miscCharge['payee'] ?? null,
-                        'amount' => $miscCharge['amount'],
-                        'check_date' => $miscCharge['check_date'] ?? null,
-                        'voucher' => null,
-                        'is_paid' => false,
-                        'is_deleted' => false,
-                    ]);
-                }
-            }
-        }
-    }
 }
 
-    public function show($id)
-    {
-        $ap = AccountsPayable::with([
-            'booking',
-            'booking.containerSize',
-            'booking.origin',
-            'booking.destination',
-            'booking.shippingLine',
-            'booking.truckComp',
-            'freightCharge',
-            'truckingCharges',
-            'portCharges',
-            'miscCharges'
-        ])->notDeleted()->find($id);
 
-        if (!$ap) {
-            return response()->json(['message' => 'Accounts payable record not found'], 404);
+public function show($id)
+{
+    $ap = AccountsPayable::with([
+        'booking' => function($query) {
+            $query->notDeleted();
+        },
+        'booking.containerSize',
+        'booking.origin',
+        'booking.destination',
+        'booking.shippingLine',
+        'booking.truckComp',
+        'freightCharge' => function($query) {
+            $query->notDeleted();
+        },
+        'truckingCharges' => function($query) {
+            $query->notDeleted();
+        },
+        'portCharges' => function($query) {
+            $query->notDeleted();
+        },
+        'miscCharges' => function($query) {
+            $query->notDeleted();
         }
+    ])->notDeleted()->find($id);
 
-        return response()->json($ap);
+    if (!$ap) {
+        return response()->json(['message' => 'Accounts payable record not found'], 404);
     }
+
+    return response()->json($ap);
+}
 
     public function update(Request $request, $id)
     {
@@ -389,14 +347,22 @@ class AccountsPayableController extends Controller
         ]);
     }
     
-    // Add this method to AccountsPayableController.php
+
 public function getByBooking($bookingId)
 {
     $ap = AccountsPayable::with([
-        'freightCharge',
-        'truckingCharges',
-        'portCharges',
-        'miscCharges'
+        'freightCharge' => function($query) {
+            $query->notDeleted();
+        },
+        'truckingCharges' => function($query) {
+            $query->notDeleted();
+        },
+        'portCharges' => function($query) {
+            $query->notDeleted();
+        },
+        'miscCharges' => function($query) {
+            $query->notDeleted();
+        }
     ])->where('booking_id', $bookingId)->notDeleted()->first();
 
     if (!$ap) {

@@ -14,7 +14,7 @@ class ApFreightCharge extends Model
 
     protected $fillable = [
         'ap_id',
-        'voucher_number', // Added voucher_number
+        'voucher_number',
         'amount',
         'check_date',
         'voucher',
@@ -28,6 +28,12 @@ class ApFreightCharge extends Model
         'is_paid' => 'boolean',
         'is_deleted' => 'boolean'
     ];
+
+    // Scopes
+    public function scopeNotDeleted($query)
+    {
+        return $query->where('is_deleted', false);
+    }
 
     public function accountsPayable()
     {

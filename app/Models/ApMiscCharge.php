@@ -14,7 +14,7 @@ class ApMiscCharge extends Model
 
     protected $fillable = [
         'ap_id',
-        'voucher_number', // Added voucher_number
+        'voucher_number',
         'charge_type',
         'payee',
         'amount',
@@ -30,6 +30,12 @@ class ApMiscCharge extends Model
         'is_paid' => 'boolean',
         'is_deleted' => 'boolean'
     ];
+
+    // Scopes
+    public function scopeNotDeleted($query)
+    {
+        return $query->where('is_deleted', false);
+    }
 
     public function accountsPayable()
     {

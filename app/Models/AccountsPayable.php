@@ -32,22 +32,22 @@ class AccountsPayable extends Model
 
     public function freightCharge()
     {
-        return $this->hasOne(ApFreightCharge::class, 'ap_id');
+        return $this->hasOne(ApFreightCharge::class, 'ap_id')->where('is_deleted', false);
     }
 
     public function truckingCharges()
     {
-        return $this->hasMany(ApTruckingCharge::class, 'ap_id');
+        return $this->hasMany(ApTruckingCharge::class, 'ap_id')->where('is_deleted', false);
     }
 
     public function portCharges()
     {
-        return $this->hasMany(ApPortCharge::class, 'ap_id');
+        return $this->hasMany(ApPortCharge::class, 'ap_id')->where('is_deleted', false);
     }
 
     public function miscCharges()
     {
-        return $this->hasMany(ApMiscCharge::class, 'ap_id');
+        return $this->hasMany(ApMiscCharge::class, 'ap_id')->where('is_deleted', false);
     }
 
     // Scopes
