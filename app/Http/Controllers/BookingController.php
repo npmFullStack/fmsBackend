@@ -310,7 +310,7 @@ public function approveBooking(Request $request, $id)
         $booking->update([
             'user_id' => $user->id,
             'status' => 'approved',
-            'booking_status' => 'in_transit',
+            'booking_status' => 'pending',
         ]);
 
         // CREATE OR UPDATE CARGO MONITORING RECORD

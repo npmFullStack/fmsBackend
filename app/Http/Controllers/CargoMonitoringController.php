@@ -128,36 +128,51 @@ class CargoMonitoringController extends Controller
     /**
      * Update the cargo status.
      */
-    public function updateStatus(Request $request, $id)
-    {
-        $request->validate([
-            'status' => 'required|string',
-            'timestamp' => 'nullable|date'
+     public function updateStatus(Request $request, $id)
+{
+    $request->validate([
+        'status' => 'required|string',
+        'timestamp' => 'nullable|date'
+    ]);
+
+    $cargoMonitoring = CargoMonitoring::findOrFail($id);
+    
+    $timestamp = $request->timestamp ? Carbon::parse($request->timestamp) : now();
+    
+    // Update the specific status field based on the status
+    $statusFieldMap = [
+        'Picked Up' => 'picked_up_at',
+        'Origin Port' => 'origin_port_at',
+        'In Transit' => 'in_transit_at',
+        'Destination Port' => 'destination_port_at',
+        'Out for Delivery' => 'out_for_delivery_at',
+        'Delivered' => 'delivered_at'
+    ];
+
+    if (isset($statusFieldMap[$request->status])) {
+        $field = $statusFieldMap[$request->status];
+        $cargoMonitoring->update([
+            $field => $timestamp,
+            'current_status' => $request->status
         ]);
 
-        $cargoMonitoring = CargoMonitoring::findOrFail($id);
-        
-        // FIX: Use Carbon::parse() instead of CargoMonitoring::parse()
-        $timestamp = $request->timestamp ? Carbon::parse($request->timestamp) : now();
-        
-        // Update the specific status field based on the status
-        $statusFieldMap = [
-            'Picked Up' => 'picked_up_at',
-            'Origin Port' => 'origin_port_at',
-            'In Transit' => 'in_transit_at',
-            'Destination Port' => 'destination_port_at',
-            'Out for Delivery' => 'out_for_delivery_at',
-            'Delivered' => 'delivered_at'
+        // SYNC WITH BOOKING STATUS
+        $bookingStatusMap = [
+            'Picked Up' => 'in_transit',
+            'Origin Port' => 'in_transit', 
+            'In Transit' => 'in_transit',
+            'Destination Port' => 'in_transit',
+            'Out for Delivery' => 'in_transit',
+            'Delivered' => 'delivered'
         ];
 
-        if (isset($statusFieldMap[$request->status])) {
-            $field = $statusFieldMap[$request->status];
-            $cargoMonitoring->update([
-                $field => $timestamp,
-                'current_status' => $request->status
+        if (isset($bookingStatusMap[$request->status])) {
+            $cargoMonitoring->booking->update([
+                'booking_status' => $bookingStatusMap[$request->status]
             ]);
         }
-
-        return response()->json($cargoMonitoring);
     }
+
+    return response()->json($cargoMonitoring);
+}
 }
