@@ -14,6 +14,7 @@ class ApPortCharge extends Model
 
     protected $fillable = [
         'ap_id',
+        'voucher_number', // Added voucher_number
         'charge_type',
         'payee',
         'amount',

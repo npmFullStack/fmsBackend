@@ -14,6 +14,7 @@ class ApTruckingCharge extends Model
 
     protected $fillable = [
         'ap_id',
+        'voucher_number', // Added voucher_number
         'type',
         'amount',
         'check_date',

@@ -137,4 +137,6 @@ Route::prefix('accounts-payables')->group(function () {
     Route::put('/{id}', [AccountsPayableController::class, 'update']);
     Route::delete('/{id}', [AccountsPayableController::class, 'destroy']);
     Route::put('/{apId}/{chargeType}/{chargeId}', [AccountsPayableController::class, 'updateChargeStatus']);
+Route::get('/booking/{bookingId}', [AccountsPayableController::class,
+'getByBooking']);
 });

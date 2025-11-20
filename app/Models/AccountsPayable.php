@@ -13,14 +13,15 @@ class AccountsPayable extends Model
 
     protected $fillable = [
         'booking_id',
-        'voucher_number',
         'is_paid',
-        'is_deleted'
+        'is_deleted',
+        'total_expenses'
     ];
 
     protected $casts = [
         'is_paid' => 'boolean',
-        'is_deleted' => 'boolean'
+        'is_deleted' => 'boolean',
+        'total_expenses' => 'decimal:2'
     ];
 
     // Relationships
@@ -65,18 +66,23 @@ class AccountsPayable extends Model
         return $query->where('is_paid', false);
     }
 
-    // Generate unique voucher number
-    public static function generateVoucherNumber()
+    // Generate unique voucher number for charges
+    public static function generateChargeVoucherNumber($prefix = 'CHG')
     {
         do {
-            $voucher = Str::upper(Str::random(5));
-        } while (self::where('voucher_number', $voucher)->exists());
+            $voucher = $prefix . strtoupper(Str::random(3)) . rand(100, 999);
+        } while (
+            ApFreightCharge::where('voucher_number', $voucher)->exists() ||
+            ApTruckingCharge::where('voucher_number', $voucher)->exists() ||
+            ApPortCharge::where('voucher_number', $voucher)->exists() ||
+            ApMiscCharge::where('voucher_number', $voucher)->exists()
+        );
 
         return $voucher;
     }
 
-    // Calculate total amount
-    public function getTotalAmountAttribute()
+    // Calculate total amount and update total_expenses
+    public function calculateTotalAmount()
     {
         $total = 0;
 
@@ -94,7 +100,16 @@ class AccountsPayable extends Model
         // Misc charges
         $total += $this->miscCharges->sum('amount');
 
+        // Update the total_expenses field
+        $this->update(['total_expenses' => $total]);
+
         return $total;
+    }
+
+    // Accessor for total amount (for backward compatibility)
+    public function getTotalAmountAttribute()
+    {
+        return $this->total_expenses;
     }
 
     // Check if all charges are paid

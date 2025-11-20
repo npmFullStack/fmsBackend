@@ -14,6 +14,7 @@ class ApFreightCharge extends Model
 
     protected $fillable = [
         'ap_id',
+        'voucher_number', // Added voucher_number
         'amount',
         'check_date',
         'voucher',
