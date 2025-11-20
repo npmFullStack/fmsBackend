@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\CargoMonitoring;
 use Illuminate\Http\Request;
+use Carbon\Carbon; // Add this import
 
 class CargoMonitoringController extends Controller
 {
@@ -129,56 +130,34 @@ class CargoMonitoringController extends Controller
      */
     public function updateStatus(Request $request, $id)
     {
-        try {
-            $request->validate([
-                'status' => 'required|in:Picked Up,Origin Port,In Transit,Destination Port,Out for Delivery,Delivered'
+        $request->validate([
+            'status' => 'required|string',
+            'timestamp' => 'nullable|date'
+        ]);
+
+        $cargoMonitoring = CargoMonitoring::findOrFail($id);
+        
+        // FIX: Use Carbon::parse() instead of CargoMonitoring::parse()
+        $timestamp = $request->timestamp ? Carbon::parse($request->timestamp) : now();
+        
+        // Update the specific status field based on the status
+        $statusFieldMap = [
+            'Picked Up' => 'picked_up_at',
+            'Origin Port' => 'origin_port_at',
+            'In Transit' => 'in_transit_at',
+            'Destination Port' => 'destination_port_at',
+            'Out for Delivery' => 'out_for_delivery_at',
+            'Delivered' => 'delivered_at'
+        ];
+
+        if (isset($statusFieldMap[$request->status])) {
+            $field = $statusFieldMap[$request->status];
+            $cargoMonitoring->update([
+                $field => $timestamp,
+                'current_status' => $request->status
             ]);
-
-            $cargoMonitoring = CargoMonitoring::find($id);
-
-            if (!$cargoMonitoring) {
-                return response()->json([
-                    'message' => 'Cargo monitoring record not found'
-                ], 404);
-            }
-
-            $status = $request->status;
-            
-            // Update the appropriate timestamp based on status
-            switch ($status) {
-                case 'Picked Up':
-                    $cargoMonitoring->picked_up_at = now();
-                    break;
-                case 'Origin Port':
-                    $cargoMonitoring->origin_port_at = now();
-                    break;
-                case 'In Transit':
-                    $cargoMonitoring->in_transit_at = now();
-                    break;
-                case 'Destination Port':
-                    $cargoMonitoring->destination_port_at = now();
-                    break;
-                case 'Out for Delivery':
-                    $cargoMonitoring->out_for_delivery_at = now();
-                    break;
-                case 'Delivered':
-                    $cargoMonitoring->delivered_at = now();
-                    break;
-            }
-
-            $cargoMonitoring->current_status = $status;
-            $cargoMonitoring->save();
-
-            return response()->json([
-                'message' => 'Cargo status updated successfully',
-                'cargo_monitoring' => $cargoMonitoring->load('booking')
-            ]);
-
-        } catch (\Exception $e) {
-            return response()->json([
-                'message' => 'Failed to update cargo status',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        return response()->json($cargoMonitoring);
     }
 }
