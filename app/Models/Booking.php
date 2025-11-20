@@ -58,6 +58,10 @@ class Booking extends Model
         return $this->belongsTo(ContainerType::class, 'container_size_id');
     }
 
+public function cargoMonitoring()
+{
+    return $this->hasOne(CargoMonitoring::class);
+}
     public function origin()
     {
         return $this->belongsTo(Port::class, 'origin_id');

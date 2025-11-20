@@ -121,7 +121,8 @@ public function quote(Request $request)
         ], 500);
     }
 }
-    public function store(Request $request)
+
+public function store(Request $request)
 {
     DB::beginTransaction();
 
@@ -201,11 +202,18 @@ public function quote(Request $request)
             ]);
         }
 
+        // CREATE CARGO MONITORING RECORD
+        \App\Models\CargoMonitoring::create([
+            'booking_id' => $booking->id,
+            'pending_at' => now(),
+            'current_status' => 'Pending'
+        ]);
+
         DB::commit();
 
         return response()->json([
             'message' => 'Booking created successfully',
-            'booking' => $booking->load(['items', 'truckComp', 'user', 'containerSize', 'origin', 'destination'])
+            'booking' => $booking->load(['items', 'truckComp', 'user', 'containerSize', 'origin', 'destination', 'cargoMonitoring'])
         ], 201);
 
     } catch (\Exception $e) {
@@ -216,6 +224,7 @@ public function quote(Request $request)
         ], 500);
     }
 }
+    
 
     public function show($id)
     {
@@ -253,7 +262,7 @@ public function quote(Request $request)
         return response()->json($booking);
     }
 
-   public function approveBooking(Request $request, $id)
+public function approveBooking(Request $request, $id)
 {
     DB::beginTransaction();
 
@@ -269,7 +278,7 @@ public function quote(Request $request)
         }
 
         // Generate random password
-        $password = Str::random(8); // Fixed: was $tr::random(8)
+        $password = Str::random(8);
 
         // Find or create user
         $user = User::where('email', $booking->email)->first();
@@ -304,6 +313,13 @@ public function quote(Request $request)
             'booking_status' => 'in_transit',
         ]);
 
+        // CREATE OR UPDATE CARGO MONITORING RECORD
+        \App\Models\CargoMonitoring::create([
+            'booking_id' => $booking->id,
+            'pending_at' => now(),
+            'current_status' => 'Pending'
+        ]);
+
         // Send email with password
         $this->sendApprovalEmail($booking, $password);
 
@@ -311,9 +327,9 @@ public function quote(Request $request)
 
         return response()->json([
             'message' => 'Booking approved successfully. Password sent to customer.',
-            'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items'])
+            'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items', 'cargoMonitoring'])
         ]);
-    } catch (Exception $e) {
+    } catch (\Exception $e) {
         DB::rollBack();
         return response()->json([
             'message' => 'Failed to approve booking',
@@ -321,6 +337,7 @@ public function quote(Request $request)
         ], 500);
     }
 }
+   
 
 private function sendApprovalEmail($booking, $password)
 {

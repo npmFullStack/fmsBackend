@@ -11,6 +11,7 @@ use App\Http\Controllers\ShipRouteController;
 use App\Http\Controllers\ShippingLineController;
 use App\Http\Controllers\BookingController;
 use App\Http\Controllers\UserController;
+use App\Http\Controllers\CargoMonitoringController;
 
 
 Route::prefix('auth')->group(function () {
@@ -116,4 +117,12 @@ Route::prefix('users')->group(function () {
     Route::post('/bulk-delete', [UserController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [UserController::class, 'restore']);
     Route::post('/{id}/promote', [UserController::class, 'promote']);
+});
+
+// Cargo Monitoring Route Group
+Route::prefix('cargo-monitoring')->group(function () {
+    Route::get('/', [CargoMonitoringController::class, 'index']); // Add this line
+    Route::get('/booking/{bookingId}', [CargoMonitoringController::class, 'getByBooking']);
+    Route::put('/{id}/status', [CargoMonitoringController::class, 'updateStatus']);
+    Route::get('/{id}', [CargoMonitoringController::class, 'show']);
 });
