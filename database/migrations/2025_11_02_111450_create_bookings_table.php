@@ -46,7 +46,6 @@ return new class extends Migration
             $table->foreignId('destination_id')->constrained('ports');
             $table->foreignId('shipping_line_id')->nullable()->constrained('shipping_lines');
             $table->foreignId('truck_comp_id')->nullable()->constrained('truck_comps');
-
             // Dates
 $table->date('departure_date')->nullable();
 $table->date('delivery_date')->nullable();

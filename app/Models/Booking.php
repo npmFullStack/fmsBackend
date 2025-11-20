@@ -62,6 +62,12 @@ public function cargoMonitoring()
 {
     return $this->hasOne(CargoMonitoring::class);
 }
+
+public function accountsPayable()
+    {
+        return $this->hasOne(AccountsPayable::class);
+    }
+    
     public function origin()
     {
         return $this->belongsTo(Port::class, 'origin_id');

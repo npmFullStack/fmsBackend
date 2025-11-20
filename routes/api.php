@@ -12,6 +12,7 @@ use App\Http\Controllers\ShippingLineController;
 use App\Http\Controllers\BookingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CargoMonitoringController;
+use App\Http\Controllers\AccountsPayableController;
 
 
 Route::prefix('auth')->group(function () {
@@ -125,4 +126,15 @@ Route::prefix('cargo-monitoring')->group(function () {
     Route::get('/booking/{bookingId}', [CargoMonitoringController::class, 'getByBooking']);
     Route::put('/{id}/status', [CargoMonitoringController::class, 'updateStatus']);
     Route::get('/{id}', [CargoMonitoringController::class, 'show']);
+});
+
+
+// Accounts Payable Route Group
+Route::prefix('accounts-payables')->group(function () {
+    Route::get('/', [AccountsPayableController::class, 'index']);
+    Route::post('/', [AccountsPayableController::class, 'store']);
+    Route::get('/{id}', [AccountsPayableController::class, 'show']);
+    Route::put('/{id}', [AccountsPayableController::class, 'update']);
+    Route::delete('/{id}', [AccountsPayableController::class, 'destroy']);
+    Route::put('/{apId}/{chargeType}/{chargeId}', [AccountsPayableController::class, 'updateChargeStatus']);
 });
