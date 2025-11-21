@@ -239,28 +239,34 @@ public function store(Request $request)
         return response()->json($booking);
     }
 
-    public function update(Request $request, $id)
-    {
-        $booking = Booking::notDeleted()->find($id);
+public function update(Request $request, $id)
+{
+    $booking = Booking::notDeleted()->find($id);
 
-        if (!$booking) {
-            return response()->json(['message' => 'Booking not found'], 404);
-        }
-
-        $validated = $request->validate([
-            'status' => 'sometimes|in:pending,approved,rejected',
-            'booking_status' => 'sometimes|in:pending,in_transit,delivered',
-            'first_name' => 'sometimes|string|max:255',
-            'last_name' => 'sometimes|string|max:255',
-            'email' => 'sometimes|email',
-            'truck_comp_id' => 'nullable|exists:truck_comps,id',
-            'terms' => 'sometimes|integer|min:1',
-        ]);
-
-        $booking->update($validated);
-
-        return response()->json($booking);
+    if (!$booking) {
+        return response()->json(['message' => 'Booking not found'], 404);
     }
+
+    $validated = $request->validate([
+        'status' => 'sometimes|in:pending,approved,rejected',
+        'booking_status' => 'sometimes|in:pending,in_transit,delivered',
+        'first_name' => 'sometimes|string|max:255',
+        'last_name' => 'sometimes|string|max:255',
+        'email' => 'sometimes|email',
+        'truck_comp_id' => 'nullable|exists:truck_comps,id',
+        'terms' => 'sometimes|integer|min:1',
+    ]);
+
+    $booking->update($validated);
+
+    // If booking status changed to delivered, update AR
+    if ($booking->wasChanged('booking_status') && $booking->booking_status === 'delivered') {
+        // Trigger AR update
+        app(AccountsReceivableController::class)->updateOnDelivery($booking->id);
+    }
+
+    return response()->json($booking);
+}
 
 public function approveBooking(Request $request, $id)
 {
@@ -399,4 +405,49 @@ private function sendApprovalEmail($booking, $password)
 
         return response()->json(['message' => 'Booking restored successfully'], 200);
     }
+    
+    // for customer-payment methods
+
+public function getCustomerBookings(Request $request)
+{
+    $user = auth()->user();
+    $perPage = $request->get('per_page', 10);
+    $search = $request->get('search', '');
+
+    $query = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items', 'cargoMonitoring'])
+        ->where('user_id', $user->id)
+        ->notDeleted();
+
+    if (!empty($search)) {
+        $query->where(function($q) use ($search) {
+            $q->where('booking_number', 'like', '%' . $search . '%')
+              ->orWhere('first_name', 'like', '%' . $search . '%')
+              ->orWhere('last_name', 'like', '%' . $search . '%');
+        });
+    }
+
+    $sort = $request->get('sort', 'id');
+    $direction = $request->get('direction', 'desc');
+
+    $data = $query->orderBy($sort, $direction)->paginate($perPage);
+
+    return response()->json($data);
+}
+
+public function getCustomerBooking($id)
+{
+    $user = auth()->user();
+    
+    $booking = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items', 'cargoMonitoring'])
+        ->where('id', $id)
+        ->where('user_id', $user->id)
+        ->notDeleted()
+        ->first();
+
+    if (!$booking) {
+        return response()->json(['message' => 'Booking not found or unauthorized'], 404);
+    }
+
+    return response()->json($booking);
+}
 }

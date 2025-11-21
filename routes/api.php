@@ -13,6 +13,8 @@ use App\Http\Controllers\BookingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CargoMonitoringController;
 use App\Http\Controllers\AccountsPayableController;
+use App\Http\Controllers\AccountsReceivableController;
+use App\Http\Controllers\PaymentController;
 
 
 Route::prefix('auth')->group(function () {
@@ -147,4 +149,38 @@ Route::prefix('pay-charges')->group(function () {
     Route::get('/booking/{bookingId}', [AccountsPayableController::class, 'getPayableChargesByBooking']);
     Route::post('/mark-paid', [AccountsPayableController::class, 'markChargesAsPaid']);
     Route::post('/mark-multiple-paid', [AccountsPayableController::class, 'markMultipleChargesAsPaid']);
+});
+
+// Accounts Receivable Route Group
+Route::prefix('accounts-receivables')->group(function () {
+    Route::get('/', [AccountsReceivableController::class, 'index']);
+    Route::post('/', [AccountsReceivableController::class, 'store']);
+    Route::get('/summary', [AccountsReceivableController::class, 'getFinancialSummary']);
+    Route::get('/{id}', [AccountsReceivableController::class, 'show']);
+    Route::put('/{id}', [AccountsReceivableController::class, 'update']);
+    Route::delete('/{id}', [AccountsReceivableController::class, 'destroy']);
+    Route::get('/booking/{bookingId}', [AccountsReceivableController::class, 'getByBooking']);
+    Route::post('/{id}/mark-paid', [AccountsReceivableController::class, 'markAsPaid']);
+    Route::post('/booking/{bookingId}/update-delivery', [AccountsReceivableController::class, 'updateOnDelivery']);
+});
+
+
+// [file name]: api.php - Add to existing routes
+
+// Payments Route Group
+Route::prefix('payments')->group(function () {
+    Route::get('/', [PaymentController::class, 'index']);
+    Route::post('/', [PaymentController::class, 'store']);
+    Route::get('/{id}', [PaymentController::class, 'show']);
+    Route::put('/{id}', [PaymentController::class, 'update']);
+    Route::delete('/{id}', [PaymentController::class, 'destroy']);
+    Route::get('/booking/{bookingId}', [PaymentController::class, 'getByBooking']);
+    Route::post('/{id}/process-gcash', [PaymentController::class, 'processGCashPayment']);
+});
+
+// Customer-specific routes
+Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
+    Route::get('/bookings', [BookingController::class, 'getCustomerBookings']);
+    Route::get('/bookings/{id}', [BookingController::class, 'getCustomerBooking']);
+    Route::post('/bookings/{id}/pay', [PaymentController::class, 'createPayment']);
 });
