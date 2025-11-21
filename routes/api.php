@@ -162,10 +162,14 @@ Route::prefix('accounts-receivables')->group(function () {
     Route::get('/booking/{bookingId}', [AccountsReceivableController::class, 'getByBooking']);
     Route::post('/{id}/mark-paid', [AccountsReceivableController::class, 'markAsPaid']);
     Route::post('/booking/{bookingId}/update-delivery', [AccountsReceivableController::class, 'updateOnDelivery']);
+    Route::post('/{id}/process-payment', [AccountsReceivableController::class, 'processPayment']);
+    Route::get('/{id}/payment-breakdown', [AccountsReceivableController::class,
+    'getPaymentBreakdown']);
+Route::post('/{id}/send-payment-email', [AccountsReceivableController::class,
+'sendPaymentEmail']);
 });
 
 
-// [file name]: api.php - Add to existing routes
 
 // Payments Route Group
 Route::prefix('payments')->group(function () {
@@ -183,4 +187,12 @@ Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
     Route::get('/bookings', [BookingController::class, 'getCustomerBookings']);
     Route::get('/bookings/{id}', [BookingController::class, 'getCustomerBooking']);
     Route::post('/bookings/{id}/pay', [PaymentController::class, 'createPayment']);
+    Route::get('/accounts-receivables', [AccountsReceivableController::class, 'getCustomerReceivables']);
+    Route::post('/payments/paymongo', [PaymongoController::class,
+    'createPaymentIntent']);
+});
+
+Route::prefix('paymongo')->group(function () {
+    Route::post('/create-payment-intent', [PaymongoController::class, 'createPaymentIntent']);
+    Route::post('/webhook', [PaymongoController::class, 'handleWebhook']);
 });

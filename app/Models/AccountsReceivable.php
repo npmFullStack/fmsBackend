@@ -47,6 +47,11 @@ class AccountsReceivable extends Model
         return $this->belongsTo(Booking::class);
     }
 
+    public function payments()
+    {
+        return $this->hasMany(Payment::class, 'booking_id', 'booking_id');
+    }
+
     // Scopes
     public function scopeNotDeleted($query)
     {
@@ -73,50 +78,55 @@ class AccountsReceivable extends Model
         return $query->where('aging_bucket', $bucket);
     }
 
-    // Calculate aging based on due date
+    // Calculate aging based on invoice date and terms
     public function calculateAging()
     {
-        if (!$this->due_date || $this->is_paid) {
+        if ($this->is_paid) {
             $this->aging_days = 0;
             $this->aging_bucket = 'current';
             $this->is_overdue = false;
             return $this;
         }
 
-        $dueDate = Carbon::parse($this->due_date);
-        $now = Carbon::now();
-        
-        // Only start counting aging if due date has passed
-        if ($now->greaterThan($dueDate)) {
-            $agingDays = $dueDate->diffInDays($now);
-            $this->aging_days = $agingDays;
-            $this->is_overdue = true;
-            
-            // Determine aging bucket
-            if ($agingDays <= 30) {
-                $this->aging_bucket = '1-30';
-            } elseif ($agingDays <= 60) {
-                $this->aging_bucket = '31-60';
-            } elseif ($agingDays <= 90) {
-                $this->aging_bucket = '61-90';
-            } else {
-                $this->aging_bucket = 'over_90';
-            }
-        } else {
-            // Not yet due
+        if (!$this->invoice_date) {
             $this->aging_days = 0;
             $this->aging_bucket = 'current';
             $this->is_overdue = false;
+            return $this;
         }
+
+        $invoiceDate = Carbon::parse($this->invoice_date);
+        $now = Carbon::now();
+        
+        $agingDays = $invoiceDate->diffInDays($now);
+        $this->aging_days = $agingDays;
+        
+        // Determine aging bucket
+        if ($agingDays <= 30) {
+            $this->aging_bucket = '1-30';
+        } elseif ($agingDays <= 60) {
+            $this->aging_bucket = '31-60';
+        } elseif ($agingDays <= 90) {
+            $this->aging_bucket = '61-90';
+        } else {
+            $this->aging_bucket = 'over_90';
+        }
+
+        // Check if overdue based on terms
+        $terms = $this->booking->terms ?? 0;
+        $dueDate = $invoiceDate->copy()->addDays($terms);
+        
+        $this->is_overdue = $now->greaterThan($dueDate);
+        $this->due_date = $dueDate;
         
         return $this;
     }
 
-    // Set invoice and due dates based on booking delivery and terms
+    // Set invoice date when booking is delivered
     public function setInvoiceDates()
     {
         if ($this->booking && $this->booking->booking_status === 'delivered') {
-            // Use delivery date as invoice date, or current date if not set
+            // Use delivery date as invoice date
             $deliveryDate = $this->booking->delivery_date ?: $this->booking->updated_at;
             $this->invoice_date = Carbon::parse($deliveryDate)->format('Y-m-d');
             
@@ -128,54 +138,61 @@ class AccountsReceivable extends Model
         return $this;
     }
 
-    // Calculate financial metrics
-    public function calculateFinancials()
-    {
-        // Gross income is the total payment expected
-        $this->gross_income = $this->total_payment;
-        
-        // Net revenue is gross income minus expenses
-        $this->net_revenue = $this->gross_income - $this->total_expenses;
-        
-        // Profit (same as net revenue in this context)
-        $this->profit = $this->net_revenue;
-        
-        // Collectible amount is what's still owed
-        $this->collectible_amount = $this->is_paid ? 0 : $this->total_payment;
-        
-        return $this;
+// Calculate financial metrics
+public function calculateFinancials()
+{
+    // Ensure numeric values
+    $totalPayment = $this->total_payment ?? 0;
+    $totalExpenses = $this->total_expenses ?? 0;
+    
+    // Gross income is the total payment expected
+    $this->gross_income = $totalPayment;
+    
+    // Net revenue is gross income minus expenses
+    $this->net_revenue = $this->gross_income - $totalExpenses;
+    
+    // Profit (same as net revenue in this context)
+    $this->profit = $this->net_revenue;
+    
+    // Calculate paid amount from payments if relationship exists
+    $paidAmount = 0;
+    if (method_exists($this, 'payments') && $this->relationLoaded('payments')) {
+        $paidAmount = $this->payments->where('status', 'completed')->sum('amount');
+    } elseif (method_exists($this, 'payments')) {
+        $paidAmount = $this->payments()->where('status', 'completed')->sum('amount');
     }
+    
+    // Collectible amount is total payment minus paid amount
+    $this->collectible_amount = max(0, $totalPayment - $paidAmount);
+    
+    return $this;
+}
 
-    // Check if fully paid
-    public function markAsPaid()
-    {
-        $this->is_paid = true;
-        $this->collectible_amount = 0;
-        $this->is_overdue = false;
-        $this->aging_days = 0;
-        $this->aging_bucket = 'current';
-        $this->calculateFinancials();
-        return $this;
-    }
+// Check if fully paid
+public function markAsPaid()
+{
+    $this->is_paid = true;
+    $this->collectible_amount = 0;
+    $this->is_overdue = false;
+    $this->aging_days = 0;
+    $this->aging_bucket = 'current';
+    return $this;
+}
 
-    // Boot method for automatic calculations
-    protected static function boot()
-    {
-        parent::boot();
+// Boot method for automatic calculations
+protected static function boot()
+{
+    parent::boot();
 
-        static::saving(function ($model) {
+    static::saving(function ($model) {
+        // Only calculate if not already paid
+        if (!$model->is_paid) {
             $model->setInvoiceDates()
                   ->calculateAging()
                   ->calculateFinancials();
-        });
-
-        // Listen for booking status changes to update AR
-        static::updated(function ($model) {
-            if ($model->booking && $model->booking->wasChanged('booking_status')) {
-                $model->setInvoiceDates()->calculateAging()->save();
-            }
-        });
-    }
+        }
+    });
+}
 
     // Accessor for due status
     public function getDueStatusAttribute()
@@ -195,6 +212,18 @@ class AccountsReceivable extends Model
             return 'overdue';
         }
         
-        return 'due_in_' . $now->diffInDays($due_date) . '_days';
+        return 'due_in_' . $now->diffInDays($dueDate) . '_days';
+    }
+
+    // New accessor for total paid amount
+    public function getTotalPaidAttribute()
+    {
+        return $this->payments->where('status', 'completed')->sum('amount');
+    }
+
+    // New accessor for remaining balance
+    public function getRemainingBalanceAttribute()
+    {
+        return $this->collectible_amount;
     }
 }

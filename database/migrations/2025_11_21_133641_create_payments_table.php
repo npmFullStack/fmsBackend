@@ -1,5 +1,5 @@
 <?php
-// [file name]: 2025_01_15_000000_create_payments_table.php
+// [file name]: 2025_11_21_133641_create_payments_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -19,11 +19,17 @@ return new class extends Migration
             $table->string('reference_number')->unique()->nullable();
             $table->decimal('amount', 12, 2);
             $table->enum('status', ['pending', 'processing', 'completed', 'failed', 'cancelled'])->default('pending');
+            $table->date('payment_date')->nullable();
             
             // GCash specific fields
             $table->string('gcash_mobile_number')->nullable();
             $table->string('gcash_receipt')->nullable();
             $table->string('gcash_transaction_id')->nullable();
+
+            // Paymongo specific fields
+            $table->string('paymongo_payment_intent_id')->nullable();
+            $table->string('paymongo_source_id')->nullable();
+            $table->json('paymongo_response')->nullable();
             
             // Timestamps
             $table->timestamps();
@@ -34,6 +40,7 @@ return new class extends Migration
             $table->index('status');
             $table->index('reference_number');
             $table->index('created_at');
+            $table->index('payment_date');
         });
     }
 

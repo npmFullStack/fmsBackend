@@ -24,7 +24,8 @@ class AccountsReceivableController extends Controller
             },
             'booking.containerSize',
             'booking.origin',
-            'booking.destination'
+            'booking.destination',
+            'payments' // Load payments
         ])->notDeleted();
 
         // Filter by payment status
@@ -62,61 +63,224 @@ class AccountsReceivableController extends Controller
     }
 
     public function store(Request $request)
+{
+    DB::beginTransaction();
+
+    try {
+        $validated = $request->validate([
+            'booking_id' => 'required|exists:bookings,id',
+            'total_payment' => 'required|numeric|min:0',
+        ]);
+
+        $booking = Booking::notDeleted()->find($validated['booking_id']);
+        
+        if (!$booking) {
+            return response()->json(['message' => 'Booking not found'], 404);
+        }
+
+        // Get the booking's total expenses from AP
+        $ap = AccountsPayable::where('booking_id', $validated['booking_id'])->notDeleted()->first();
+        $totalExpenses = $ap ? $ap->total_expenses : 0;
+
+        // Check if AR record already exists
+        $ar = AccountsReceivable::where('booking_id', $validated['booking_id'])->first();
+
+        if ($ar) {
+            // Update existing record
+            $ar->update([
+                'total_expenses' => $totalExpenses,
+                'total_payment' => $validated['total_payment'],
+                'is_paid' => false,
+            ]);
+        } else {
+            // Create new record
+            $ar = AccountsReceivable::create([
+                'booking_id' => $validated['booking_id'],
+                'total_expenses' => $totalExpenses,
+                'total_payment' => $validated['total_payment'],
+                'collectible_amount' => $validated['total_payment'], // Initially, collectible = total payment
+                'is_paid' => false,
+                'is_deleted' => false,
+            ]);
+        }
+
+        // Calculate financials
+        $ar->calculateFinancials();
+        $ar->save();
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Accounts receivable record created successfully',
+            'accounts_receivable' => $ar->load(['booking', 'booking.containerSize', 'booking.origin', 'booking.destination'])
+        ], 201);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Failed to create accounts receivable record',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
+
+    // NEW METHOD: Process payment from customer
+    public function processPayment(Request $request, $id)
     {
         DB::beginTransaction();
 
         try {
             $validated = $request->validate([
-                'booking_id' => 'required|exists:bookings,id',
-                'total_payment' => 'required|numeric|min:0',
+                'amount' => 'required|numeric|min:0',
+                'payment_method' => 'required|in:gcash,paymongo,bank_transfer',
+                'reference_number' => 'nullable|string|max:255',
+                'payment_date' => 'required|date',
             ]);
 
-            $booking = Booking::notDeleted()->find($validated['booking_id']);
+            $ar = AccountsReceivable::notDeleted()->find($id);
+
+            if (!$ar) {
+                return response()->json(['message' => 'Accounts receivable record not found'], 404);
+            }
+
+            // Create payment record
+            $payment = Payment::create([
+                'booking_id' => $ar->booking_id,
+                'user_id' => $ar->booking->user_id,
+                'amount' => $validated['amount'],
+                'payment_method' => $validated['payment_method'],
+                'reference_number' => $validated['reference_number'],
+                'status' => 'completed',
+                'payment_date' => $validated['payment_date'],
+            ]);
+
+            // Update AR record
+            $remainingAmount = $ar->collectible_amount - $validated['amount'];
             
-            if (!$booking) {
-                return response()->json(['message' => 'Booking not found'], 404);
-            }
-
-            // Get the booking's total expenses from AP
-            $ap = AccountsPayable::where('booking_id', $validated['booking_id'])->notDeleted()->first();
-            $totalExpenses = $ap ? $ap->total_expenses : 0;
-
-            // Check if AR record already exists
-            $ar = AccountsReceivable::where('booking_id', $validated['booking_id'])->first();
-
-            if ($ar) {
-                // Update existing record
-                $ar->update([
-                    'total_expenses' => $totalExpenses,
-                    'total_payment' => $validated['total_payment'],
-                    'is_paid' => false,
-                ]);
+            if ($remainingAmount <= 0) {
+                $ar->markAsPaid();
             } else {
-                // Create new record
-                $ar = AccountsReceivable::create([
-                    'booking_id' => $validated['booking_id'],
-                    'total_expenses' => $totalExpenses,
-                    'total_payment' => $validated['total_payment'],
+                $ar->update([
+                    'collectible_amount' => $remainingAmount,
                     'is_paid' => false,
-                    'is_deleted' => false,
                 ]);
             }
+
+            // Send payment confirmation email
+            $this->sendPaymentConfirmationEmail($ar, $payment);
 
             DB::commit();
 
             return response()->json([
-                'message' => 'Accounts receivable record created successfully',
-                'accounts_receivable' => $ar->load(['booking', 'booking.containerSize', 'booking.origin', 'booking.destination'])
-            ], 201);
+                'message' => 'Payment processed successfully',
+                'accounts_receivable' => $ar->fresh(['payments', 'booking']),
+                'payment' => $payment
+            ]);
 
         } catch (\Exception $e) {
             DB::rollBack();
             return response()->json([
-                'message' => 'Failed to create accounts receivable record',
+                'message' => 'Failed to process payment',
                 'error' => $e->getMessage()
             ], 500);
         }
     }
+
+    // NEW METHOD: Get payment breakdown
+    public function getPaymentBreakdown($id)
+    {
+        $ar = AccountsReceivable::with([
+            'booking',
+            'payments' => function($query) {
+                $query->orderBy('created_at', 'desc');
+            }
+        ])->notDeleted()->find($id);
+
+        if (!$ar) {
+            return response()->json(['message' => 'Accounts receivable record not found'], 404);
+        }
+
+        $breakdown = [
+            'total_payment' => $ar->total_payment,
+            'total_expenses' => $ar->total_expenses,
+            'collectible_amount' => $ar->collectible_amount,
+            'paid_amount' => $ar->total_payment - $ar->collectible_amount,
+            'payments' => $ar->payments,
+            'profit' => $ar->profit,
+            'net_revenue' => $ar->net_revenue,
+        ];
+
+        return response()->json($breakdown);
+    }
+
+    private function sendPaymentConfirmationEmail($ar, $payment)
+    {
+        try {
+            $user = $ar->booking->user;
+            $booking = $ar->booking;
+            
+            // You'll need to create this Mailable
+            Mail::to($user->email)->send(new \App\Mail\PaymentConfirmation($ar, $payment));
+            
+            \Log::info('Payment confirmation email sent', [
+                'user_id' => $user->id,
+                'ar_id' => $ar->id,
+                'payment_id' => $payment->id
+            ]);
+        } catch (\Exception $e) {
+            \Log::error('Failed to send payment confirmation email: ' . $e->getMessage());
+            // Don't throw error, just log it
+        }
+    }
+    
+    public function sendPaymentEmail($id)
+{
+    try {
+        $ar = AccountsReceivable::with([
+            'booking.user',
+            'booking.containerSize',
+            'booking.origin',
+            'booking.destination'
+        ])->notDeleted()->find($id);
+
+        if (!$ar) {
+            return response()->json(['message' => 'Accounts receivable record not found'], 404);
+        }
+
+        // Check if payment amount is set
+        if (!$ar->total_payment || $ar->total_payment <= 0) {
+            return response()->json(['message' => 'No payment amount set for this booking'], 400);
+        }
+
+        $user = $ar->booking->user;
+        
+        if (!$user || !$user->email) {
+            return response()->json(['message' => 'Customer email not found'], 400);
+        }
+
+        // Send payment request email
+        Mail::to($user->email)->send(new \App\Mail\PaymentRequest($ar));
+
+        \Log::info('Payment request email sent successfully', [
+            'user_id' => $user->id,
+            'ar_id' => $ar->id,
+            'email' => $user->email,
+            'amount' => $ar->total_payment
+        ]);
+
+        return response()->json([
+            'message' => 'Payment request email sent successfully',
+            'email_sent_to' => $user->email
+        ]);
+
+    } catch (\Exception $e) {
+        \Log::error('Failed to send payment request email: ' . $e->getMessage());
+        return response()->json([
+            'message' => 'Failed to send payment request email',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
 
     public function show($id)
     {
@@ -237,31 +401,31 @@ class AccountsReceivableController extends Controller
         }
     }
 
-    // Get financial summary
-    public function getFinancialSummary()
-    {
-        $summary = AccountsReceivable::notDeleted()
-            ->selectRaw('
-                COUNT(*) as total_records,
-                SUM(total_payment) as total_gross_income,
-                SUM(total_expenses) as total_expenses,
-                SUM(net_revenue) as total_net_revenue,
-                SUM(profit) as total_profit,
-                SUM(collectible_amount) as total_collectible,
-                SUM(CASE WHEN is_overdue = true THEN 1 ELSE 0 END) as total_overdue,
-                SUM(CASE WHEN is_overdue = true THEN collectible_amount ELSE 0 END) as total_overdue_amount
-            ')
-            ->first();
+// Get financial summary
+public function getFinancialSummary()
+{
+    $summary = AccountsReceivable::notDeleted()
+        ->selectRaw('
+            COUNT(*) as total_records,
+            COALESCE(SUM(total_payment), 0) as total_gross_income,
+            COALESCE(SUM(total_expenses), 0) as total_expenses,
+            COALESCE(SUM(net_revenue), 0) as total_net_revenue,
+            COALESCE(SUM(profit), 0) as total_profit,
+            COALESCE(SUM(collectible_amount), 0) as total_collectible,
+            SUM(CASE WHEN is_overdue = true THEN 1 ELSE 0 END) as total_overdue,
+            COALESCE(SUM(CASE WHEN is_overdue = true THEN collectible_amount ELSE 0 END), 0) as total_overdue_amount
+        ')
+        ->first();
 
-        // Aging breakdown
-        $agingBreakdown = AccountsReceivable::notDeleted()
-            ->selectRaw('aging_bucket, COUNT(*) as count, SUM(collectible_amount) as amount')
-            ->groupBy('aging_bucket')
-            ->get();
+    // Aging breakdown
+    $agingBreakdown = AccountsReceivable::notDeleted()
+        ->selectRaw('aging_bucket, COUNT(*) as count, COALESCE(SUM(collectible_amount), 0) as amount')
+        ->groupBy('aging_bucket')
+        ->get();
 
-        return response()->json([
-            'summary' => $summary,
-            'aging_breakdown' => $agingBreakdown
-        ]);
-    }
+    return response()->json([
+        'summary' => $summary,
+        'aging_breakdown' => $agingBreakdown
+    ]);
+}
 }
