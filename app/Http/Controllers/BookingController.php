@@ -406,48 +406,81 @@ private function sendApprovalEmail($booking, $password)
         return response()->json(['message' => 'Booking restored successfully'], 200);
     }
     
-    // for customer-payment methods
-
-public function getCustomerBookings(Request $request)
-{
-    $user = auth()->user();
-    $perPage = $request->get('per_page', 10);
-    $search = $request->get('search', '');
-
-    $query = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items', 'cargoMonitoring'])
-        ->where('user_id', $user->id)
-        ->notDeleted();
-
-    if (!empty($search)) {
-        $query->where(function($q) use ($search) {
-            $q->where('booking_number', 'like', '%' . $search . '%')
-              ->orWhere('first_name', 'like', '%' . $search . '%')
-              ->orWhere('last_name', 'like', '%' . $search . '%');
-        });
-    }
-
-    $sort = $request->get('sort', 'id');
-    $direction = $request->get('direction', 'desc');
-
-    $data = $query->orderBy($sort, $direction)->paginate($perPage);
-
-    return response()->json($data);
-}
-
-public function getCustomerBooking($id)
-{
-    $user = auth()->user();
     
-    $booking = Booking::with(['containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items', 'cargoMonitoring'])
-        ->where('id', $id)
+    
+    public function getCustomerBookings(Request $request)
+{
+    try {
+        $user = auth()->user();
+        $perPage = $request->get('per_page', 10);
+        $search = $request->get('search', '');
+
+        // Load essential relationships including accounts receivable
+        $query = Booking::with([
+            'containerSize', 
+            'origin', 
+            'destination', 
+            'items',
+            'accountsReceivable' => function($query) {
+                $query->select([
+                    'id',
+                    'booking_id',
+                    'total_expenses',
+                    'total_payment',
+                    'collectible_amount',
+                    'gross_income',
+                    'net_revenue',
+                    'profit',
+                    'invoice_date',
+                    'due_date',
+                    'is_paid',
+                    'is_overdue',
+                    'aging_days',
+                    'aging_bucket'
+                ]);
+            }
+        ])
         ->where('user_id', $user->id)
-        ->notDeleted()
-        ->first();
+        ->where('is_deleted', false);
 
-    if (!$booking) {
-        return response()->json(['message' => 'Booking not found or unauthorized'], 404);
+        // Simple search
+        if (!empty($search)) {
+            $query->where(function($q) use ($search) {
+                $q->where('booking_number', 'like', '%' . $search . '%')
+                  ->orWhere('first_name', 'like', '%' . $search . '%')
+                  ->orWhere('last_name', 'like', '%' . $search . '%')
+                  ->orWhere('hwb_number', 'like', '%' . $search . '%')
+                  ->orWhere('van_number', 'like', '%' . $search . '%');
+            });
+        }
+
+        // Basic sorting
+        $sort = $request->get('sort', 'id');
+        $direction = $request->get('direction', 'desc');
+        $query->orderBy($sort, $direction);
+
+        $data = $query->paginate($perPage);
+
+        // Add payment summary to each booking
+        $data->getCollection()->transform(function ($booking) {
+            $booking->payment_summary = [
+                'total_due' => $booking->accountsReceivable->collectible_amount ?? 0,
+                'total_payment' => $booking->accountsReceivable->total_payment ?? 0,
+                'is_paid' => $booking->accountsReceivable->is_paid ?? false,
+                'has_ar' => !empty($booking->accountsReceivable)
+            ];
+            return $booking;
+        });
+
+        return response()->json($data);
+
+    } catch (\Exception $e) {
+        \Log::error('Customer bookings error: ' . $e->getMessage());
+        return response()->json([
+            'message' => 'Failed to load bookings',
+            'error' => $e->getMessage()
+        ], 500);
     }
-
-    return response()->json($booking);
 }
+
 }

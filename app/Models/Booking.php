@@ -153,6 +153,15 @@ class Booking extends Model
         return $this->belongsTo(User::class);
     }
 
+public function accountsReceivable()
+{
+    return $this->hasOne(AccountsReceivable::class);
+}
+
+public function payments() 
+{
+    return $this->hasMany(Payment::class);
+}
     // Scopes
     public function scopeNotDeleted($query)
     {
