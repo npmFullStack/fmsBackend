@@ -233,7 +233,75 @@ public function index(Request $request)
         }
     }
 
+    // ✅ ADD PORT CHARGES HANDLING
+    if (isset($validated['port_charges'])) {
+        foreach ($validated['port_charges'] as $portCharge) {
+            if ($portCharge['amount'] > 0) {
+                // Find existing port charge of the same type
+                $existingPort = ApPortCharge::where('ap_id', $ap->id)
+                    ->where('charge_type', $portCharge['charge_type'])
+                    ->where('is_deleted', false)
+                    ->first();
 
+                if ($existingPort) {
+                    // ✅ REPLACE existing charge amount
+                    $existingPort->update([
+                        'amount' => $portCharge['amount'],
+                        'payee' => $portCharge['payee'] ?? $existingPort->payee,
+                        'check_date' => $portCharge['check_date'] ?? $existingPort->check_date,
+                    ]);
+                } else {
+                    // Create new port charge only if none exists for this type
+                    ApPortCharge::create([
+                        'ap_id' => $ap->id,
+                        'voucher_number' => AccountsPayable::generateChargeVoucherNumber('PRT'),
+                        'charge_type' => $portCharge['charge_type'],
+                        'payee' => $portCharge['payee'] ?? null,
+                        'amount' => $portCharge['amount'],
+                        'check_date' => $portCharge['check_date'] ?? null,
+                        'voucher' => null,
+                        'is_paid' => false,
+                        'is_deleted' => false,
+                    ]);
+                }
+            }
+        }
+    }
+
+    // ✅ ADD MISC CHARGES HANDLING
+    if (isset($validated['misc_charges'])) {
+        foreach ($validated['misc_charges'] as $miscCharge) {
+            if ($miscCharge['amount'] > 0) {
+                // Find existing misc charge of the same type
+                $existingMisc = ApMiscCharge::where('ap_id', $ap->id)
+                    ->where('charge_type', $miscCharge['charge_type'])
+                    ->where('is_deleted', false)
+                    ->first();
+
+                if ($existingMisc) {
+                    // ✅ REPLACE existing charge amount
+                    $existingMisc->update([
+                        'amount' => $miscCharge['amount'],
+                        'payee' => $miscCharge['payee'] ?? $existingMisc->payee,
+                        'check_date' => $miscCharge['check_date'] ?? $existingMisc->check_date,
+                    ]);
+                } else {
+                    // Create new misc charge only if none exists for this type
+                    ApMiscCharge::create([
+                        'ap_id' => $ap->id,
+                        'voucher_number' => AccountsPayable::generateChargeVoucherNumber('MSC'),
+                        'charge_type' => $miscCharge['charge_type'],
+                        'payee' => $miscCharge['payee'] ?? null,
+                        'amount' => $miscCharge['amount'],
+                        'check_date' => $miscCharge['check_date'] ?? null,
+                        'voucher' => null,
+                        'is_paid' => false,
+                        'is_deleted' => false,
+                    ]);
+                }
+            }
+        }
+    }
 }
 
 
