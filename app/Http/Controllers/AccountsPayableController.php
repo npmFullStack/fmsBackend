@@ -371,4 +371,412 @@ public function getByBooking($bookingId)
 
     return response()->json($ap);
 }
+
+// Pay Charges related methods
+
+public function getPayableCharges(Request $request)
+    {
+        $perPage = $request->get('per_page', 10);
+        $search = $request->get('search', '');
+        $status = $request->get('status', 'unpaid'); // unpaid, paid, all
+
+        $query = AccountsPayable::with([
+            'booking' => function($query) {
+                $query->notDeleted();
+            },
+            'booking.containerSize',
+            'booking.origin',
+            'booking.destination',
+            'freightCharge' => function($query) {
+                $query->notDeleted();
+            },
+            'truckingCharges' => function($query) {
+                $query->notDeleted();
+            },
+            'portCharges' => function($query) {
+                $query->notDeleted();
+            },
+            'miscCharges' => function($query) {
+                $query->notDeleted();
+            }
+        ])->notDeleted()
+          ->whereHas('booking', function($query) {
+              $query->notDeleted();
+          });
+
+        // Filter by unpaid charges
+        if ($status === 'unpaid') {
+            $query->where(function($q) {
+                $q->whereHas('freightCharge', function($q) {
+                    $q->where('is_paid', false);
+                })
+                ->orWhereHas('truckingCharges', function($q) {
+                    $q->where('is_paid', false);
+                })
+                ->orWhereHas('portCharges', function($q) {
+                    $q->where('is_paid', false);
+                })
+                ->orWhereHas('miscCharges', function($q) {
+                    $q->where('is_paid', false);
+                });
+            });
+        } elseif ($status === 'paid') {
+            $query->where('is_paid', true);
+        }
+
+        if (!empty($search)) {
+            $query->where(function($q) use ($search) {
+                $q->where('total_expenses', 'like', '%' . $search . '%')
+                  ->orWhereHas('booking', function($q) use ($search) {
+                      $q->where('booking_number', 'like', '%' . $search . '%')
+                        ->orWhere('first_name', 'like', '%' . $search . '%')
+                        ->orWhere('last_name', 'like', '%' . $search . '%');
+                  })
+                  ->orWhereHas('freightCharge', function($q) use ($search) {
+                      $q->where('voucher_number', 'like', '%' . $search . '%');
+                  })
+                  ->orWhereHas('truckingCharges', function($q) use ($search) {
+                      $q->where('voucher_number', 'like', '%' . $search . '%');
+                  })
+                  ->orWhereHas('portCharges', function($q) use ($search) {
+                      $q->where('voucher_number', 'like', '%' . $search . '%');
+                  })
+                  ->orWhereHas('miscCharges', function($q) use ($search) {
+                      $q->where('voucher_number', 'like', '%' . $search . '%');
+                  });
+            });
+        }
+
+        $sort = $request->get('sort', 'id');
+        $direction = $request->get('direction', 'desc');
+
+        $data = $query->orderBy($sort, $direction)->paginate($perPage);
+
+        // Add unpaid charges count and total unpaid amount to each record
+        $data->getCollection()->transform(function ($ap) {
+            $ap->unpaid_charges_count = $this->countUnpaidCharges($ap);
+            $ap->total_unpaid_amount = $this->calculateUnpaidAmount($ap);
+            return $ap;
+        });
+
+        return response()->json($data);
+    }
+    
+        /**
+     * Get payable charges for a specific booking
+     */
+    public function getPayableChargesByBooking($bookingId)
+    {
+        $ap = AccountsPayable::with([
+            'booking' => function($query) {
+                $query->notDeleted();
+            },
+            'booking.containerSize',
+            'booking.origin',
+            'booking.destination',
+            'freightCharge' => function($query) {
+                $query->notDeleted();
+            },
+            'truckingCharges' => function($query) {
+                $query->notDeleted();
+            },
+            'portCharges' => function($query) {
+                $query->notDeleted();
+            },
+            'miscCharges' => function($query) {
+                $query->notDeleted();
+            }
+        ])->where('booking_id', $bookingId)->notDeleted()->first();
+
+        if (!$ap) {
+            return response()->json(['message' => 'No accounts payable record found for this booking'], 404);
+        }
+
+        // Add unpaid charges information
+        $ap->unpaid_charges_count = $this->countUnpaidCharges($ap);
+        $ap->total_unpaid_amount = $this->calculateUnpaidAmount($ap);
+        $ap->all_charges = $this->getAllCharges($ap);
+
+        return response()->json($ap);
+    }
+
+    /**
+     * Mark multiple charges as paid
+     */
+    public function markMultipleChargesAsPaid(Request $request)
+    {
+        DB::beginTransaction();
+
+        try {
+            $validated = $request->validate([
+                'charges' => 'required|array',
+                'charges.*.ap_id' => 'required|exists:accounts_payables,id',
+                'charges.*.charge_type' => 'required|in:freight,trucking,port,misc',
+                'charges.*.charge_id' => 'required',
+                'charges.*.voucher' => 'nullable|string|max:100',
+                'charges.*.check_date' => 'nullable|date',
+            ]);
+
+            $results = [];
+
+            foreach ($validated['charges'] as $chargeData) {
+                $result = $this->markSingleChargeAsPaid(
+                    $chargeData['ap_id'],
+                    $chargeData['charge_type'],
+                    $chargeData['charge_id'],
+                    [
+                        'voucher' => $chargeData['voucher'] ?? null,
+                        'check_date' => $chargeData['check_date'] ?? null,
+                    ]
+                );
+
+                $results[] = $result;
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Charges marked as paid successfully',
+                'results' => $results
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to mark charges as paid',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Mark a single charge as paid
+     */
+    public function markChargesAsPaid(Request $request)
+    {
+        $validated = $request->validate([
+            'ap_id' => 'required|exists:accounts_payables,id',
+            'charge_type' => 'required|in:freight,trucking,port,misc',
+            'charge_id' => 'required',
+            'voucher' => 'nullable|string|max:100',
+            'check_date' => 'nullable|date',
+        ]);
+
+        try {
+            $result = $this->markSingleChargeAsPaid(
+                $validated['ap_id'],
+                $validated['charge_type'],
+                $validated['charge_id'],
+                [
+                    'voucher' => $validated['voucher'] ?? null,
+                    'check_date' => $validated['check_date'] ?? null,
+                ]
+            );
+
+            return response()->json([
+                'message' => 'Charge marked as paid successfully',
+                'charge' => $result['charge'],
+                'ap_record' => $result['ap_record']
+            ]);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'message' => 'Failed to mark charge as paid',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Helper method to mark a single charge as paid
+     */
+    private function markSingleChargeAsPaid($apId, $chargeType, $chargeId, $paymentData)
+    {
+        $ap = AccountsPayable::notDeleted()->find($apId);
+        if (!$ap) {
+            throw new \Exception('Accounts payable record not found');
+        }
+
+        // Determine which model to use based on charge type
+        switch ($chargeType) {
+            case 'freight':
+                $charge = ApFreightCharge::where('ap_id', $apId)->first();
+                if (!$charge) {
+                    throw new \Exception('Freight charge not found');
+                }
+                break;
+            case 'trucking':
+                $charge = ApTruckingCharge::where('ap_id', $apId)->where('id', $chargeId)->first();
+                break;
+            case 'port':
+                $charge = ApPortCharge::where('ap_id', $apId)->where('id', $chargeId)->first();
+                break;
+            case 'misc':
+                $charge = ApMiscCharge::where('ap_id', $apId)->where('id', $chargeId)->first();
+                break;
+            default:
+                throw new \Exception('Invalid charge type');
+        }
+
+        if (!$charge) {
+            throw new \Exception('Charge not found');
+        }
+
+        // Update charge with payment data
+        $charge->update([
+            'is_paid' => true,
+            'voucher' => $paymentData['voucher'],
+            'check_date' => $paymentData['check_date'],
+        ]);
+
+        // Check if all charges are paid and update main AP record
+        $ap->update([
+            'is_paid' => $ap->all_charges_paid
+        ]);
+
+        // Reload relationships
+        $ap->load(['freightCharge', 'truckingCharges', 'portCharges', 'miscCharges']);
+
+        return [
+            'charge' => $charge,
+            'ap_record' => $ap
+        ];
+    }
+
+    /**
+     * Count unpaid charges for an AP record
+     */
+    private function countUnpaidCharges($ap)
+    {
+        $count = 0;
+
+        if ($ap->freight_charge && !$ap->freight_charge->is_paid) {
+            $count++;
+        }
+
+        if ($ap->trucking_charges) {
+            $count += $ap->trucking_charges->where('is_paid', false)->count();
+        }
+
+        if ($ap->port_charges) {
+            $count += $ap->port_charges->where('is_paid', false)->count();
+        }
+
+        if ($ap->misc_charges) {
+            $count += $ap->misc_charges->where('is_paid', false)->count();
+        }
+
+        return $count;
+    }
+
+    /**
+     * Calculate total unpaid amount for an AP record
+     */
+    private function calculateUnpaidAmount($ap)
+    {
+        $total = 0;
+
+        if ($ap->freight_charge && !$ap->freight_charge->is_paid) {
+            $total += $ap->freight_charge->amount;
+        }
+
+        if ($ap->trucking_charges) {
+            $total += $ap->trucking_charges->where('is_paid', false)->sum('amount');
+        }
+
+        if ($ap->port_charges) {
+            $total += $ap->port_charges->where('is_paid', false)->sum('amount');
+        }
+
+        if ($ap->misc_charges) {
+            $total += $ap->misc_charges->where('is_paid', false)->sum('amount');
+        }
+
+        return $total;
+    }
+
+    /**
+     * Get all charges in a unified format
+     */
+    private function getAllCharges($ap)
+    {
+        $charges = [];
+
+        // Freight charge
+        if ($ap->freight_charge) {
+            $charges[] = [
+                'type' => 'freight',
+                'id' => $ap->freight_charge->id,
+                'charge_type' => 'FREIGHT',
+                'voucher_number' => $ap->freight_charge->voucher_number,
+                'payee' => 'Freight Charge',
+                'amount' => $ap->freight_charge->amount,
+                'check_date' => $ap->freight_charge->check_date,
+                'voucher' => $ap->freight_charge->voucher,
+                'is_paid' => $ap->freight_charge->is_paid,
+                'created_at' => $ap->freight_charge->created_at,
+                'updated_at' => $ap->freight_charge->updated_at,
+            ];
+        }
+
+        // Trucking charges
+        if ($ap->trucking_charges) {
+            foreach ($ap->trucking_charges as $charge) {
+                $charges[] = [
+                    'type' => 'trucking',
+                    'id' => $charge->id,
+                    'charge_type' => 'TRUCKING_' . $charge->type,
+                    'voucher_number' => $charge->voucher_number,
+                    'payee' => 'Trucking - ' . $charge->type,
+                    'amount' => $charge->amount,
+                    'check_date' => $charge->check_date,
+                    'voucher' => $charge->voucher,
+                    'is_paid' => $charge->is_paid,
+                    'created_at' => $charge->created_at,
+                    'updated_at' => $charge->updated_at,
+                ];
+            }
+        }
+
+        // Port charges
+        if ($ap->port_charges) {
+            foreach ($ap->port_charges as $charge) {
+                $charges[] = [
+                    'type' => 'port',
+                    'id' => $charge->id,
+                    'charge_type' => $charge->charge_type,
+                    'voucher_number' => $charge->voucher_number,
+                    'payee' => $charge->payee ?: 'Port - ' . $charge->charge_type,
+                    'amount' => $charge->amount,
+                    'check_date' => $charge->check_date,
+                    'voucher' => $charge->voucher,
+                    'is_paid' => $charge->is_paid,
+                    'created_at' => $charge->created_at,
+                    'updated_at' => $charge->updated_at,
+                ];
+            }
+        }
+
+        // Misc charges
+        if ($ap->misc_charges) {
+            foreach ($ap->misc_charges as $charge) {
+                $charges[] = [
+                    'type' => 'misc',
+                    'id' => $charge->id,
+                    'charge_type' => $charge->charge_type,
+                    'voucher_number' => $charge->voucher_number,
+                    'payee' => $charge->payee ?: 'Misc - ' . $charge->charge_type,
+                    'amount' => $charge->amount,
+                    'check_date' => $charge->check_date,
+                    'voucher' => $charge->voucher,
+                    'is_paid' => $charge->is_paid,
+                    'created_at' => $charge->created_at,
+                    'updated_at' => $charge->updated_at,
+                ];
+            }
+        }
+
+        return $charges;
+    }
+    
 }

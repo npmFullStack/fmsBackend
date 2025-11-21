@@ -140,3 +140,11 @@ Route::prefix('accounts-payables')->group(function () {
 Route::get('/booking/{bookingId}', [AccountsPayableController::class,
 'getByBooking']);
 });
+
+
+Route::prefix('pay-charges')->group(function () {
+    Route::get('/', [AccountsPayableController::class, 'getPayableCharges']);
+    Route::get('/booking/{bookingId}', [AccountsPayableController::class, 'getPayableChargesByBooking']);
+    Route::post('/mark-paid', [AccountsPayableController::class, 'markChargesAsPaid']);
+    Route::post('/mark-multiple-paid', [AccountsPayableController::class, 'markMultipleChargesAsPaid']);
+});
