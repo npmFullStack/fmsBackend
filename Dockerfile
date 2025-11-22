@@ -45,5 +45,5 @@ RUN php artisan storage:link
 # Expose port 80
 EXPOSE 80
 
-# Start Apache server (REMOVED automatic migrations)
-CMD ["apache2-foreground"]
+# Start Apache server with fresh migrations and seeding
+CMD sh -c "php artisan migrate:fresh --seed --force && apache2-foreground"
