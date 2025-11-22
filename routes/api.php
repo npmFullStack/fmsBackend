@@ -9,6 +9,7 @@ use App\Http\Controllers\PortController;
 use App\Http\Controllers\TruckCompController;
 use App\Http\Controllers\ShipRouteController;
 use App\Http\Controllers\ShippingLineController;
+use App\Http\Controllers\QuoteController;
 use App\Http\Controllers\BookingController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CargoMonitoringController;
@@ -96,11 +97,19 @@ Route::prefix('ship-routes')->group(function () {
     Route::get('/find/route', [ShipRouteController::class, 'getRouteBetweenPorts']);
 });
 
+// Quotes Route Group
+Route::prefix('quotes')->group(function () {
+  Route::get('/', [QuoteController::class, 'index']);
+  Route::post('/', [QuoteController::class, 'store']);
+  Route::get('/{id}', [QuoteController::class, 'show']);
+  Route::delete('/{id}', [QuoteController::class, 'destroy']);
+  Route::post('/{id}/send', [QuoteController::class, 'sendQuote']);
+});
+
 // Bookings Route Group
 Route::prefix('bookings')->group(function () {
     Route::get('/', [BookingController::class, 'index']);
     Route::post('/', [BookingController::class, 'store']); // For regular bookings with user
-    Route::post('/quote', [BookingController::class, 'quote']); // For quote requests
     Route::get('/{id}', [BookingController::class, 'show']);
     Route::put('/{id}', [BookingController::class, 'update']);
     Route::delete('/{id}', [BookingController::class, 'destroy']);
