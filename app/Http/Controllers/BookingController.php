@@ -141,6 +141,98 @@ public function store(Request $request)
     }
 }
     
+    // For customer when creating a booking
+public function storeCustomerBooking(Request $request)
+{
+    DB::beginTransaction();
+
+    try {
+        $validated = $request->validate([
+            // User ID (customer)
+            'user_id' => 'required|exists:users,id',
+            
+            // Shipper Information
+            'shipper_first_name' => 'required|string|max:255',
+            'shipper_last_name' => 'required|string|max:255',
+            'shipper_contact' => 'nullable|string',
+            
+            // Consignee Information
+            'consignee_first_name' => 'required|string|max:255',
+            'consignee_last_name' => 'required|string|max:255',
+            'consignee_contact' => 'nullable|string',
+            
+            // Shipping Details
+            'mode_of_service' => 'required|string',
+            'container_size_id' => 'required|exists:container_types,id',
+            'container_quantity' => 'required|integer|min:1',
+            'origin_id' => 'required|exists:ports,id',
+            'destination_id' => 'required|exists:ports,id',
+            'shipping_line_id' => 'nullable|exists:shipping_lines,id',
+            'truck_comp_id' => 'nullable|exists:truck_comps,id',
+            
+            // Terms
+            'terms' => 'required|integer|min:1',
+            
+            // Locations
+            'pickup_location' => 'nullable|array',
+            'delivery_location' => 'nullable|array',
+            
+            // Items
+            'items' => 'required|array',
+            'items.*.name' => 'required|string',
+            'items.*.weight' => 'required|numeric|min:0',
+            'items.*.quantity' => 'required|integer|min:1',
+            'items.*.category' => 'required|string',
+        ]);
+
+        // Get the user information
+        $user = User::findOrFail($validated['user_id']);
+
+        // Generate tracking numbers
+        $bookingNumber = Booking::generateBookingNumber();
+        $hwbNumber = Booking::generateHwbNumber();
+        $vanNumber = Booking::generateVanNumber();
+
+        // Create booking with PENDING status for customer submissions
+        $booking = Booking::create(array_merge($validated, [
+            'first_name' => $user->first_name,
+            'last_name' => $user->last_name,
+            'email' => $user->email,
+            'contact_number' => $user->contact_number,
+            'booking_number' => $bookingNumber,
+            'hwb_number' => $hwbNumber,
+            'van_number' => $vanNumber,
+            'booking_status' => 'pending', // Set to pending for customer bookings
+            'status' => 'pending', // Set to pending for admin approval
+            'is_deleted' => false,
+        ]));
+
+        // Create booking items
+        foreach ($validated['items'] as $itemData) {
+            BookingItem::create([
+                'booking_id' => $booking->id,
+                'name' => $itemData['name'],
+                'weight' => $itemData['weight'],
+                'quantity' => $itemData['quantity'],
+                'category' => $itemData['category'],
+            ]);
+        }
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Booking submitted successfully! Waiting for admin approval.',
+            'booking' => $booking->load(['items', 'containerSize', 'origin', 'destination'])
+        ], 201);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Failed to create booking',
+            'error' => $e->getMessage()
+        ], 500);
+    }
+}
 
     public function show($id)
     {

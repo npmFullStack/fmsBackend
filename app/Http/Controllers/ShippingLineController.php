@@ -26,6 +26,14 @@ class ShippingLineController extends Controller
         return response()->json($data);
     }
 
+public function dropdown()
+{
+    $shippingLines = ShippingLine::where('is_deleted', 0)
+        ->orderBy('name', 'asc')
+        ->get();
+        
+    return response()->json($shippingLines);
+}
     public function store(Request $request)
     {
         $validated = $request->validate([

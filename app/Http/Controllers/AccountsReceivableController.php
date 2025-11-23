@@ -70,6 +70,13 @@ class AccountsReceivableController extends Controller
         $validated = $request->validate([
             'booking_id' => 'required|exists:bookings,id',
             'total_payment' => 'required|numeric|min:0',
+            'charges' => 'required|array', // ✅ Added validation for charges
+            'charges.*.description' => 'required|string',
+            'charges.*.type' => 'required|string',
+            'charges.*.amount' => 'required|numeric|min:0',
+            'charges.*.markup' => 'required|numeric|min:0',
+            'charges.*.markup_amount' => 'required|numeric|min:0',
+            'charges.*.total' => 'required|numeric|min:0',
         ]);
 
         $booking = Booking::notDeleted()->find($validated['booking_id']);
@@ -90,6 +97,7 @@ class AccountsReceivableController extends Controller
             $ar->update([
                 'total_expenses' => $totalExpenses,
                 'total_payment' => $validated['total_payment'],
+                'charges' => $validated['charges'], // ✅ Save charges array
                 'is_paid' => false,
             ]);
         } else {
@@ -98,7 +106,8 @@ class AccountsReceivableController extends Controller
                 'booking_id' => $validated['booking_id'],
                 'total_expenses' => $totalExpenses,
                 'total_payment' => $validated['total_payment'],
-                'collectible_amount' => $validated['total_payment'], // Initially, collectible = total payment
+                'charges' => $validated['charges'], // ✅ Save charges array
+                'collectible_amount' => $validated['total_payment'],
                 'is_paid' => false,
                 'is_deleted' => false,
             ]);
@@ -111,14 +120,14 @@ class AccountsReceivableController extends Controller
         DB::commit();
 
         return response()->json([
-            'message' => 'Accounts receivable record created successfully',
+            'message' => 'Payment amount set successfully',
             'accounts_receivable' => $ar->load(['booking', 'booking.containerSize', 'booking.origin', 'booking.destination'])
-        ], 201);
+        ], 200);
 
     } catch (\Exception $e) {
         DB::rollBack();
         return response()->json([
-            'message' => 'Failed to create accounts receivable record',
+            'message' => 'Failed to set payment amount',
             'error' => $e->getMessage()
         ], 500);
     }
@@ -303,22 +312,41 @@ class AccountsReceivableController extends Controller
     }
 
     public function update(Request $request, $id)
-    {
-        $ar = AccountsReceivable::notDeleted()->find($id);
+{
+    $ar = AccountsReceivable::notDeleted()->find($id);
 
-        if (!$ar) {
-            return response()->json(['message' => 'Accounts receivable record not found'], 404);
-        }
-
-        $validated = $request->validate([
-            'total_payment' => 'sometimes|numeric|min:0',
-            'is_paid' => 'sometimes|boolean',
-        ]);
-
-        $ar->update($validated);
-
-        return response()->json($ar);
+    if (!$ar) {
+        return response()->json(['message' => 'Accounts receivable record not found'], 404);
     }
+
+    $validated = $request->validate([
+        'total_payment' => 'sometimes|numeric|min:0',
+        'charges' => 'sometimes|array', // ✅ Added charges validation
+        'is_paid' => 'sometimes|boolean',
+    ]);
+
+    // If updating total_payment, also update charges if provided
+    if (isset($validated['total_payment']) && isset($validated['charges'])) {
+        $ar->update([
+            'total_payment' => $validated['total_payment'],
+            'charges' => $validated['charges'], // ✅ Save charges
+        ]);
+    } elseif (isset($validated['total_payment'])) {
+        $ar->update(['total_payment' => $validated['total_payment']]);
+    } elseif (isset($validated['charges'])) {
+        $ar->update(['charges' => $validated['charges']]); // ✅ Save charges only
+    }
+
+    if (isset($validated['is_paid'])) {
+        $ar->update(['is_paid' => $validated['is_paid']]);
+    }
+
+    // Recalculate financials
+    $ar->calculateFinancials();
+    $ar->save();
+
+    return response()->json($ar->fresh());
+}
 
     public function destroy($id)
     {

@@ -26,6 +26,15 @@ class TruckCompController extends Controller
         return response()->json($data);
     }
 
+public function dropdown()
+{
+    $truckCompanies = TruckComp::where('is_deleted', 0)
+        ->orderBy('name', 'asc')
+        ->get();
+        
+    return response()->json($truckCompanies);
+}
+
     public function store(Request $request)
     {
         $validated = $request->validate([

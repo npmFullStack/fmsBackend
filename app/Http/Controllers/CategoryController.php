@@ -25,7 +25,14 @@ class CategoryController extends Controller
 
         return response()->json($categories);
     }
-
+public function dropdown()
+{
+    $categories = Category::where('is_deleted', false)
+        ->orderBy('name', 'asc')
+        ->get();
+        
+    return response()->json($categories);
+}
     public function store(Request $request)
     {
         $validated = $request->validate([

@@ -29,6 +29,15 @@ class PortController extends Controller
 
         return response()->json($ports);
     }
+    
+    public function dropdown()
+{
+    $ports = Port::where('is_deleted', false)
+        ->orderBy('name', 'asc')
+        ->get();
+        
+    return response()->json($ports);
+}
 
     public function store(Request $request)
     {

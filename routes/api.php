@@ -29,6 +29,7 @@ Route::prefix('auth')->group(function () {
 // Category Route Group
 Route::prefix('categories')->group(function () {
     Route::get('/', [CategoryController::class, 'index']);
+    Route::get('/dropdown', [CategoryController::class, 'dropdown']);
     Route::post('/', [CategoryController::class, 'store']);
     Route::get('/{id}', [CategoryController::class, 'show']);
     Route::put('/{id}', [CategoryController::class, 'update']);
@@ -52,6 +53,7 @@ Route::prefix('container-types')->group(function () {
 // Ports Route Group
 Route::prefix('ports')->group(function () {
     Route::get('/', [PortController::class, 'index']);
+    Route::get('/dropdown', [PortController::class, 'dropdown']);
     Route::post('/', [PortController::class, 'store']);
     Route::get('/{id}', [PortController::class, 'show']);
     Route::put('/{id}', [PortController::class, 'update']);
@@ -60,11 +62,10 @@ Route::prefix('ports')->group(function () {
     Route::post('/{id}/restore', [PortController::class, 'restore']);
 });
 
-
-
 //  Truck Companies Route Group
 Route::prefix('truck-comps')->group(function () {
     Route::get('/', [TruckCompController::class, 'index']);
+    Route::get('/dropdown', [TruckCompController::class, 'dropdown']);
     Route::post('/', [TruckCompController::class, 'store']);
     Route::get('/{id}', [TruckCompController::class, 'show']);
     Route::put('/{id}', [TruckCompController::class, 'update']);
@@ -76,6 +77,7 @@ Route::prefix('truck-comps')->group(function () {
 // Shipping Lines Route Group
 Route::prefix('shipping-lines')->group(function () {
     Route::get('/', [ShippingLineController::class, 'index']);
+    Route::get('/dropdown', [ShippingLineController::class, 'dropdown']);
     Route::post('/', [ShippingLineController::class, 'store']);
     Route::get('/{id}', [ShippingLineController::class, 'show']);
     Route::put('/{id}', [ShippingLineController::class, 'update']);
@@ -88,6 +90,7 @@ Route::prefix('shipping-lines')->group(function () {
 // Ship Routes Route Group
 Route::prefix('ship-routes')->group(function () {
     Route::get('/', [ShipRouteController::class, 'index']);
+    Route::get('/dropdown', [ShipRouteController::class, 'dropdown']);
     Route::post('/', [ShipRouteController::class, 'store']);
     Route::get('/{id}', [ShipRouteController::class, 'show']);
     Route::put('/{id}', [ShipRouteController::class, 'update']);
@@ -109,13 +112,12 @@ Route::prefix('quotes')->group(function () {
 // Bookings Route Group
 Route::prefix('bookings')->group(function () {
     Route::get('/', [BookingController::class, 'index']);
-    Route::post('/', [BookingController::class, 'store']); // For regular bookings with user
+    Route::post('/', [BookingController::class, 'store']); // For admin
     Route::get('/{id}', [BookingController::class, 'show']);
     Route::put('/{id}', [BookingController::class, 'update']);
     Route::delete('/{id}', [BookingController::class, 'destroy']);
     Route::post('/bulk-delete', [BookingController::class, 'bulkDestroy']);
     Route::post('/{id}/restore', [BookingController::class, 'restore']);
-    // Add approval route
     Route::post('/{id}/approve', [BookingController::class, 'approveBooking']);
 });
 
@@ -191,9 +193,10 @@ Route::prefix('payments')->group(function () {
     Route::post('/{id}/process-gcash', [PaymentController::class, 'processGCashPayment']);
 });
 
-// Customer-specific routes
+// Customer-specific routes - MOVED storeCustomerBooking here
 Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
     Route::get('/bookings', [BookingController::class, 'getCustomerBookings']);
+    Route::post('/bookings', [BookingController::class, 'storeCustomerBooking']); // MOVED HERE
     Route::get('/bookings/{id}', [BookingController::class, 'getCustomerBooking']);
     Route::post('/bookings/{id}/pay', [PaymentController::class, 'createPayment']);
     Route::get('/accounts-receivables', [AccountsReceivableController::class, 'getCustomerReceivables']);

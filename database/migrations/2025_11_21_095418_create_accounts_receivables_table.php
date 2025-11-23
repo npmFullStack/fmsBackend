@@ -1,4 +1,5 @@
 <?php
+// [file name]: 2025_11_21_095418_create_accounts_receivables_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -20,7 +21,10 @@ return new class extends Migration
             $table->decimal('net_revenue', 12, 2)->default(0);
             $table->decimal('profit', 12, 2)->default(0);
             
-            // Aging and invoice dates
+            // Charges breakdown (store the actual charges from SendTotalPayment)
+            $table->json('charges')->nullable();
+            
+            // Invoice and aging
             $table->date('invoice_date')->nullable();
             $table->date('due_date')->nullable();
             $table->integer('aging_days')->default(0);
@@ -40,7 +44,6 @@ return new class extends Migration
             $table->index('is_overdue');
             $table->index('aging_bucket');
             $table->index('is_deleted');
-            $table->index('due_date');
         });
     }
 

@@ -18,6 +18,7 @@ class AccountsReceivable extends Model
         'gross_income',
         'net_revenue',
         'profit',
+        'charges',
         'invoice_date',
         'due_date',
         'aging_days',
@@ -27,19 +28,20 @@ class AccountsReceivable extends Model
         'is_deleted'
     ];
 
-    protected $casts = [
-        'total_expenses' => 'decimal:2',
-        'total_payment' => 'decimal:2',
-        'collectible_amount' => 'decimal:2',
-        'gross_income' => 'decimal:2',
-        'net_revenue' => 'decimal:2',
-        'profit' => 'decimal:2',
-        'invoice_date' => 'date',
-        'due_date' => 'date',
-        'is_overdue' => 'boolean',
-        'is_paid' => 'boolean',
-        'is_deleted' => 'boolean'
-    ];
+protected $casts = [
+    'total_expenses' => 'decimal:2',
+    'total_payment' => 'decimal:2',
+    'collectible_amount' => 'decimal:2',
+    'gross_income' => 'decimal:2',
+    'net_revenue' => 'decimal:2',
+    'profit' => 'decimal:2',
+    'invoice_date' => 'date',
+    'due_date' => 'date',
+    'is_overdue' => 'boolean',
+    'is_paid' => 'boolean',
+    'is_deleted' => 'boolean',
+    'charges' => 'array', // Make sure this exists
+];
 
     // Relationships
     public function booking()
@@ -225,5 +227,16 @@ protected static function boot()
     public function getRemainingBalanceAttribute()
     {
         return $this->collectible_amount;
+    }
+    
+        // Add accessor for charges if needed
+    public function getChargesAttribute($value)
+    {
+        return $value ? json_decode($value, true) : [];
+    }
+
+    public function setChargesAttribute($value)
+    {
+        $this->attributes['charges'] = json_encode($value);
     }
 }
