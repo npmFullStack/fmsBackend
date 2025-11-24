@@ -33,7 +33,7 @@ class Booking extends Model
         'terms',
         'pickup_location',
         'delivery_location',
-        'booking_status',
+        'booking_status' => 'sometimes|in:pending,picked_up,origin_port,in_transit,destination_port,out_for_delivery,delivered',
         'status',
         'is_deleted',
         'user_id',

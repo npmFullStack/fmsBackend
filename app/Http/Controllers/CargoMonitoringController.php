@@ -175,15 +175,15 @@ class CargoMonitoringController extends Controller
                 'current_status' => $request->status
             ]);
 
-            // SYNC WITH BOOKING STATUS
-            $bookingStatusMap = [
-                'Picked Up' => 'in_transit',
-                'Origin Port' => 'in_transit', 
-                'In Transit' => 'in_transit',
-                'Destination Port' => 'in_transit',
-                'Out for Delivery' => 'in_transit',
-                'Delivered' => 'delivered'
-            ];
+// SYNC WITH BOOKING STATUS
+$bookingStatusMap = [
+    'Picked Up' => 'picked_up',
+    'Origin Port' => 'origin_port', 
+    'In Transit' => 'in_transit',
+    'Destination Port' => 'destination_port',
+    'Out for Delivery' => 'out_for_delivery',
+    'Delivered' => 'delivered'
+];
 
             if (isset($bookingStatusMap[$request->status])) {
                 $cargoMonitoring->booking->update([
