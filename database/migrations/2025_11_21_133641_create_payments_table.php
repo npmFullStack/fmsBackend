@@ -15,7 +15,7 @@ return new class extends Migration
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
             
             // Payment details
-            $table->string('payment_method')->default('gcash'); // gcash, paymongo, etc.
+            $table->string('payment_method')->default('gcash');
             $table->string('reference_number')->unique()->nullable();
             $table->decimal('amount', 12, 2);
             $table->enum('status', ['pending', 'processing', 'completed', 'failed', 'cancelled'])->default('pending');
@@ -30,6 +30,8 @@ return new class extends Migration
             $table->string('paymongo_payment_intent_id')->nullable();
             $table->string('paymongo_source_id')->nullable();
             $table->json('paymongo_response')->nullable();
+            $table->string('paymongo_checkout_url')->nullable();
+            $table->string('paymongo_status')->nullable();
             
             // Timestamps
             $table->timestamps();
@@ -41,6 +43,7 @@ return new class extends Migration
             $table->index('reference_number');
             $table->index('created_at');
             $table->index('payment_date');
+            $table->index('paymongo_payment_intent_id');
         });
     }
 

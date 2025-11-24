@@ -16,7 +16,7 @@ use App\Http\Controllers\CargoMonitoringController;
 use App\Http\Controllers\AccountsPayableController;
 use App\Http\Controllers\AccountsReceivableController;
 use App\Http\Controllers\PaymentController;
-use App\Http\Controllers\PaymongoController;
+
 
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
@@ -24,6 +24,7 @@ Route::prefix('auth')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
     Route::get('/user', [AuthController::class, 'user'])->middleware('auth:sanctum');
 });
+
 
 // Category Route Group
 Route::prefix('categories')->group(function () {
@@ -48,6 +49,7 @@ Route::prefix('container-types')->group(function () {
     Route::post('/{id}/restore', [ContainerTypeController::class, 'restore']);
 });
 
+
 // Ports Route Group
 Route::prefix('ports')->group(function () {
     Route::get('/', [PortController::class, 'index']);
@@ -60,7 +62,7 @@ Route::prefix('ports')->group(function () {
     Route::post('/{id}/restore', [PortController::class, 'restore']);
 });
 
-// Truck Companies Route Group
+//  Truck Companies Route Group
 Route::prefix('truck-comps')->group(function () {
     Route::get('/', [TruckCompController::class, 'index']);
     Route::get('/dropdown', [TruckCompController::class, 'dropdown']);
@@ -133,11 +135,12 @@ Route::prefix('users')->group(function () {
 
 // Cargo Monitoring Route Group
 Route::prefix('cargo-monitoring')->group(function () {
-    Route::get('/', [CargoMonitoringController::class, 'index']);
+    Route::get('/', [CargoMonitoringController::class, 'index']); // Add this line
     Route::get('/booking/{bookingId}', [CargoMonitoringController::class, 'getByBooking']);
     Route::put('/{id}/status', [CargoMonitoringController::class, 'updateStatus']);
     Route::get('/{id}', [CargoMonitoringController::class, 'show']);
 });
+
 
 // Accounts Payable Route Group
 Route::prefix('accounts-payables')->group(function () {
@@ -147,8 +150,10 @@ Route::prefix('accounts-payables')->group(function () {
     Route::put('/{id}', [AccountsPayableController::class, 'update']);
     Route::delete('/{id}', [AccountsPayableController::class, 'destroy']);
     Route::put('/{apId}/{chargeType}/{chargeId}', [AccountsPayableController::class, 'updateChargeStatus']);
-    Route::get('/booking/{bookingId}', [AccountsPayableController::class, 'getByBooking']);
+Route::get('/booking/{bookingId}', [AccountsPayableController::class,
+'getByBooking']);
 });
+
 
 Route::prefix('pay-charges')->group(function () {
     Route::get('/', [AccountsPayableController::class, 'getPayableCharges']);
@@ -169,38 +174,30 @@ Route::prefix('accounts-receivables')->group(function () {
     Route::post('/{id}/mark-paid', [AccountsReceivableController::class, 'markAsPaid']);
     Route::post('/booking/{bookingId}/update-delivery', [AccountsReceivableController::class, 'updateOnDelivery']);
     Route::post('/{id}/process-payment', [AccountsReceivableController::class, 'processPayment']);
-    Route::get('/{id}/payment-breakdown', [AccountsReceivableController::class, 'getPaymentBreakdown']);
-    Route::post('/{id}/send-payment-email', [AccountsReceivableController::class, 'sendPaymentEmail']);
+    Route::get('/{id}/payment-breakdown', [AccountsReceivableController::class,
+    'getPaymentBreakdown']);
+Route::post('/{id}/send-payment-email', [AccountsReceivableController::class,
+'sendPaymentEmail']);
 });
 
-// Payments Route Group
-Route::prefix('payments')->group(function () {
-    Route::get('/', [PaymentController::class, 'index']);
-    Route::post('/', [PaymentController::class, 'store']);
-    Route::get('/{id}', [PaymentController::class, 'show']);
-    Route::put('/{id}', [PaymentController::class, 'update']);
-    Route::delete('/{id}', [PaymentController::class, 'destroy']);
-    Route::get('/booking/{bookingId}', [PaymentController::class, 'getByBooking']);
-    Route::post('/{id}/process-gcash', [PaymentController::class, 'processGCashPayment']);
-    Route::get('/{id}/status', [PaymentController::class, 'checkPaymentStatus']);
+// Customer-specific routes - MOVED storeCustomerBooking here
+Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
+    Route::get('/bookings', [BookingController::class, 'getCustomerBookings']);
+    Route::post('/bookings', [BookingController::class, 'storeCustomerBooking']); // MOVED HERE
+    Route::get('/bookings/{id}', [BookingController::class, 'getCustomerBooking']);
+    Route::post('/bookings/{id}/pay', [PaymentController::class, 'createPayment']);
+    Route::get('/accounts-receivables', [AccountsReceivableController::class, 'getCustomerReceivables']);
+    Route::post('/payments/paymongo', [PaymongoController::class,
+    'createPaymentIntent']);
 });
+
+
+// Payments Route Group
+Route::get('/payments/{id}/status', [PaymentController::class, 'checkPaymentStatus']);
 
 // PayMongo routes
 Route::prefix('paymongo')->group(function () {
     Route::post('/create-payment-intent', [PaymongoController::class, 'createPaymentIntent']);
     Route::post('/webhook', [PaymongoController::class, 'handleWebhook']);
     Route::get('/payment-status/{paymentIntentId}', [PaymongoController::class, 'getPaymentStatus']);
-});
-
-// Customer-specific routes 
-Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
-    Route::get('/bookings', [BookingController::class, 'getCustomerBookings']);
-    Route::post('/bookings', [BookingController::class, 'storeCustomerBooking']);
-    Route::get('/bookings/{id}', [BookingController::class, 'getCustomerBooking']);
-    
-    // FIXED: This should point to PaymentController's createPayment method
-    Route::post('/bookings/{bookingId}/pay', [PaymentController::class, 'createPayment']);
-    
-    Route::get('/accounts-receivables', [AccountsReceivableController::class, 'getCustomerReceivables']);
-    Route::post('/payments/paymongo', [PaymongoController::class, 'createPaymentIntent']);
 });
