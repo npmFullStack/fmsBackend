@@ -195,32 +195,33 @@ class AccountsReceivableController extends Controller
         }
     }
 
-    // NEW METHOD: Get payment breakdown
-    public function getPaymentBreakdown($id)
-    {
-        $ar = AccountsReceivable::with([
-            'booking',
-            'payments' => function($query) {
-                $query->orderBy('created_at', 'desc');
-            }
-        ])->notDeleted()->find($id);
 
-        if (!$ar) {
-            return response()->json(['message' => 'Accounts receivable record not found'], 404);
+public function getPaymentBreakdown($id)
+{
+    $ar = AccountsReceivable::with([
+        'booking',
+        'payments' => function($query) {
+            $query->orderBy('created_at', 'desc');
         }
+    ])->notDeleted()->find($id);
 
-        $breakdown = [
-            'total_payment' => $ar->total_payment,
-            'total_expenses' => $ar->total_expenses,
-            'collectible_amount' => $ar->collectible_amount,
-            'paid_amount' => $ar->total_payment - $ar->collectible_amount,
-            'payments' => $ar->payments,
-            'profit' => $ar->profit,
-            'net_revenue' => $ar->net_revenue,
-        ];
-
-        return response()->json($breakdown);
+    if (!$ar) {
+        return response()->json(['message' => 'Accounts receivable record not found'], 404);
     }
+
+    $breakdown = [
+        'total_payment' => $ar->total_payment,
+        'total_expenses' => $ar->total_expenses,
+        'collectible_amount' => $ar->collectible_amount,
+        'paid_amount' => $ar->total_payment - $ar->collectible_amount,
+        'payments' => $ar->payments,
+        'profit' => $ar->profit,
+        'net_revenue' => $ar->net_revenue,
+        'charges' => $ar->charges // ✅ Add this line to include charges
+    ];
+
+    return response()->json($breakdown);
+}
 
     private function sendPaymentConfirmationEmail($ar, $payment)
     {
