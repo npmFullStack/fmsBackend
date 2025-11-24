@@ -423,12 +423,15 @@ private function sendApprovalEmail($booking, $password)
         $perPage = $request->get('per_page', 10);
         $search = $request->get('search', '');
 
-        // Load essential relationships including accounts receivable
+        // Load all essential relationships including cargo monitoring
         $query = Booking::with([
             'containerSize', 
             'origin', 
             'destination', 
+            'shippingLine',
+            'truckComp',
             'items',
+            'cargoMonitoring', // Added cargo monitoring
             'accountsReceivable' => function($query) {
                 $query->select([
                     'id',

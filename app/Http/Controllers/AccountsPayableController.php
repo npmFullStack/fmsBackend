@@ -81,101 +81,118 @@ class AccountsPayableController extends Controller
     }
 
     public function store(Request $request)
-    {
-        DB::beginTransaction();
+{
+    DB::beginTransaction();
 
-        try {
-            $validated = $request->validate([
-                'booking_id' => 'required|exists:bookings,id',
-                
-                // Freight charges
-                'freight_charge' => 'nullable|array',
-                'freight_charge.amount' => 'nullable|numeric|min:0',
-                'freight_charge.check_date' => 'nullable|date',
-                
-                // Trucking charges - ensure unique types in the request
-                'trucking_charges' => 'nullable|array',
-                'trucking_charges.*.type' => 'required|in:ORIGIN,DESTINATION',
-                'trucking_charges.*.amount' => 'required|numeric|min:0',
-                'trucking_charges.*.check_date' => 'nullable|date',
-                
-                // Port charges - ensure unique types in the request
-                'port_charges' => 'nullable|array',
-                'port_charges.*.charge_type' => 'required|in:CRAINAGE,ARRASTRE_ORIGIN,ARRASTRE_DEST,WHARFAGE_ORIGIN,WHARFAGE_DEST,LABOR_ORIGIN,LABOR_DEST',
-                'port_charges.*.payee' => 'nullable|string|max:255',
-                'port_charges.*.amount' => 'required|numeric|min:0',
-                'port_charges.*.check_date' => 'nullable|date',
-                
-                // Misc charges - ensure unique types in the request
-                'misc_charges' => 'nullable|array',
-                'misc_charges.*.charge_type' => 'required|in:REBATES,STORAGE,FACILITATION,DENR',
-                'misc_charges.*.payee' => 'nullable|string|max:255',
-                'misc_charges.*.amount' => 'required|numeric|min:0',
-                'misc_charges.*.check_date' => 'nullable|date',
-            ]);
-
-            // Custom validation to ensure no duplicate types in the same request
-            if (isset($validated['trucking_charges'])) {
-                $truckingTypes = array_column($validated['trucking_charges'], 'type');
-                if (count($truckingTypes) !== count(array_unique($truckingTypes))) {
-                    throw new \Exception('Duplicate trucking charge types are not allowed in the same request.');
-                }
-            }
-
-            if (isset($validated['port_charges'])) {
-                $portTypes = array_column($validated['port_charges'], 'charge_type');
-                if (count($portTypes) !== count(array_unique($portTypes))) {
-                    throw new \Exception('Duplicate port charge types are not allowed in the same request.');
-                }
-            }
-
-            if (isset($validated['misc_charges'])) {
-                $miscTypes = array_column($validated['misc_charges'], 'charge_type');
-                if (count($miscTypes) !== count(array_unique($miscTypes))) {
-                    throw new \Exception('Duplicate miscellaneous charge types are not allowed in the same request.');
-                }
-            }
-
-            // Find existing AP record or create new one
-            $ap = AccountsPayable::where('booking_id', $validated['booking_id'])->first();
-
-            $isNewRecord = false;
+    try {
+        $validated = $request->validate([
+            'booking_id' => 'required|exists:bookings,id',
             
-            if (!$ap) {
-                // Create new AP record
-                $ap = AccountsPayable::create([
-                    'booking_id' => $validated['booking_id'],
-                    'is_paid' => false,
-                    'is_deleted' => false,
-                    'total_expenses' => 0,
-                ]);
-                $isNewRecord = true;
+            // Freight charges
+            'freight_charge' => 'nullable|array',
+            'freight_charge.amount' => 'nullable|numeric|min:0',
+            'freight_charge.check_date' => 'nullable|date',
+            
+            // Trucking charges - ensure unique types in the request
+            'trucking_charges' => 'nullable|array',
+            'trucking_charges.*.type' => 'required|in:ORIGIN,DESTINATION',
+            'trucking_charges.*.amount' => 'required|numeric|min:0',
+            'trucking_charges.*.check_date' => 'nullable|date',
+            
+            // Port charges - ensure unique types in the request
+            'port_charges' => 'nullable|array',
+            'port_charges.*.charge_type' => 'required|in:CRAINAGE,ARRASTRE_ORIGIN,ARRASTRE_DEST,WHARFAGE_ORIGIN,WHARFAGE_DEST,LABOR_ORIGIN,LABOR_DEST',
+            'port_charges.*.payee' => 'nullable|string|max:255',
+            'port_charges.*.amount' => 'required|numeric|min:0',
+            'port_charges.*.check_date' => 'nullable|date',
+            
+            // Misc charges - ensure unique types in the request
+            'misc_charges' => 'nullable|array',
+            'misc_charges.*.charge_type' => 'required|in:REBATES,STORAGE,FACILITATION,DENR',
+            'misc_charges.*.payee' => 'nullable|string|max:255',
+            'misc_charges.*.amount' => 'required|numeric|min:0',
+            'misc_charges.*.check_date' => 'nullable|date',
+        ]);
+
+        // Custom validation to ensure no duplicate types in the same request
+        if (isset($validated['trucking_charges'])) {
+            $truckingTypes = array_column($validated['trucking_charges'], 'type');
+            if (count($truckingTypes) !== count(array_unique($truckingTypes))) {
+                throw new \Exception('Duplicate trucking charge types are not allowed in the same request.');
             }
-
-            // ADD (not replace) charges to the AP record
-            $this->addChargesToAP($ap, $validated);
-
-            // Calculate and update total expenses
-            $ap->calculateTotalAmount();
-
-            // ✅ CREATE OR UPDATE ACCOUNTS RECEIVABLE RECORD
-            $this->updateAccountsReceivable($ap);
-
-            DB::commit();
-
-            return response()->json([
-    'message' => $isNewRecord ? 'Accounts payable record created successfully' : 'Additional charges added successfully',
-    'accounts_payable' => $ap->load(['freightCharge', 'truckingCharges', 'portCharges', 'miscCharges', 'booking'])
-], $isNewRecord ? 201 : 200);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Failed to add charges',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        if (isset($validated['port_charges'])) {
+            $portTypes = array_column($validated['port_charges'], 'charge_type');
+            if (count($portTypes) !== count(array_unique($portTypes))) {
+                throw new \Exception('Duplicate port charge types are not allowed in the same request.');
+            }
+        }
+
+        if (isset($validated['misc_charges'])) {
+            $miscTypes = array_column($validated['misc_charges'], 'charge_type');
+            if (count($miscTypes) !== count(array_unique($miscTypes))) {
+                throw new \Exception('Duplicate miscellaneous charge types are not allowed in the same request.');
+            }
+        }
+
+        // Find existing AP record or create new one
+        $ap = AccountsPayable::where('booking_id', $validated['booking_id'])->first();
+
+        $isNewRecord = false;
+        
+        if (!$ap) {
+            // Create new AP record
+            $ap = AccountsPayable::create([
+                'booking_id' => $validated['booking_id'],
+                'is_paid' => false,
+                'is_deleted' => false,
+                'total_expenses' => 0,
+            ]);
+            $isNewRecord = true;
+        }
+
+        // ADD (not replace) charges to the AP record
+        $this->addChargesToAP($ap, $validated);
+
+        // Calculate and update total expenses
+        $ap->calculateTotalAmount();
+
+        // ✅ CREATE OR UPDATE ACCOUNTS RECEIVABLE RECORD
+        $ar = $this->updateAccountsReceivable($ap);
+
+        DB::commit();
+
+        // ✅ Load all relationships for the response
+        $ap->load([
+            'freightCharge',
+            'truckingCharges', 
+            'portCharges', 
+            'miscCharges', 
+            'booking' => function($query) {
+                $query->with(['containerSize', 'origin', 'destination']);
+            }
+        ]);
+
+        return response()->json([
+            'message' => $isNewRecord ? 'Accounts payable record created successfully' : 'Additional charges added successfully',
+            'accounts_payable' => $ap,
+            // ✅ IMPORTANT: Include AR record in response
+            'accounts_receivable' => $ar ? $ar->load([
+                'booking' => function($query) {
+                    $query->with(['containerSize', 'origin', 'destination']);
+                }
+            ]) : null
+        ], $isNewRecord ? 201 : 200);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Failed to add charges',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     private function addChargesToAP($ap, $validated)
     {
@@ -306,15 +323,20 @@ class AccountsPayableController extends Controller
         }
     }
 
-/**
- * Create or update Accounts Receivable when AP charges are added
- */
 private function updateAccountsReceivable($ap)
 {
+    // Ensure we have the booking relationship loaded
+    if (!$ap->relationLoaded('booking')) {
+        $ap->load(['booking' => function($query) {
+            $query->with(['containerSize', 'origin', 'destination']);
+        }]);
+    }
+    
     $booking = $ap->booking;
     
     if (!$booking) {
-        return;
+        \Log::error('Booking not found for AP record: ' . $ap->id);
+        return null;
     }
 
     // Calculate total expenses from AP (this is our cost basis)
@@ -327,6 +349,12 @@ private function updateAccountsReceivable($ap)
         // Update existing AR record with new expenses
         $ar->update([
             'total_expenses' => $totalExpenses,
+        ]);
+        
+        \Log::info('Updated existing AR record', [
+            'ar_id' => $ar->id,
+            'booking_id' => $booking->id,
+            'total_expenses' => $totalExpenses
         ]);
     } else {
         // Create new AR record
@@ -341,11 +369,24 @@ private function updateAccountsReceivable($ap)
             'is_paid' => false,
             'is_deleted' => false,
         ]);
+        
+        \Log::info('Created new AR record', [
+            'ar_id' => $ar->id,
+            'booking_id' => $booking->id,
+            'total_expenses' => $totalExpenses
+        ]);
     }
     
     // Calculate financials and save
     $ar->calculateFinancials();
     $ar->save();
+    
+    // Load relationships for the response
+    $ar->load([
+        'booking' => function($query) {
+            $query->with(['containerSize', 'origin', 'destination']);
+        }
+    ]);
     
     return $ar;
 }
