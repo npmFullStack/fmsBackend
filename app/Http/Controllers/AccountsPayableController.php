@@ -155,8 +155,14 @@ class AccountsPayableController extends Controller
         // ADD (not replace) charges to the AP record
         $this->addChargesToAP($ap, $validated);
 
+        // ✅ CRITICAL FIX: Refresh the AP instance to get latest relationships
+        $ap->refresh();
+
         // Calculate and update total expenses
         $ap->calculateTotalAmount();
+
+        // ✅ CRITICAL FIX: Get fresh instance with calculated total_expenses
+        $ap = $ap->fresh();
 
         // ✅ CREATE OR UPDATE ACCOUNTS RECEIVABLE RECORD
         $ar = $this->updateAccountsReceivable($ap);
