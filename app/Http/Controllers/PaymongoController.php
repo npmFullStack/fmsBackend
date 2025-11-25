@@ -24,60 +24,6 @@ class PaymongoController extends Controller
     }
 
     /**
-     * Create a payment intent for Paymongo
-     */
-    private function createPaymongoPaymentIntent(Payment $payment)
-{
-    try {
-        Log::info('=== PAYMONGO PAYMENT INTENT CREATION ===');
-        Log::info('Using Secret Key: ' . substr($this->paymongoSecret, 0, 10) . '...');
-        Log::info('Amount: ' . $payment->amount . ' PHP (' . ($payment->amount * 100) . ' cents)');
-
-        // Simple payload without complex options
-        $payload = [
-            'data' => [
-                'attributes' => [
-                    'amount' => (int)($payment->amount * 100),
-                    'payment_method_allowed' => ['gcash'],
-                    'currency' => 'PHP',
-                    'description' => 'Payment for Booking #' . $payment->booking->booking_number,
-                ]
-            ]
-        ];
-
-        $response = Http::withHeaders([
-            'Authorization' => 'Basic ' . base64_encode($this->paymongoSecret . ':'),
-            'Content-Type' => 'application/json',
-        ])->timeout(30)
-          ->post($this->paymongoUrl . '/payment_intents', $payload);
-
-        Log::info('PayMongo Response Status: ' . $response->status());
-        
-        if ($response->successful()) {
-            $data = $response->json();
-            Log::info('Payment Intent Created: ' . $data['data']['id']);
-            return $data['data'];
-        } else {
-            $errorBody = $response->body();
-            Log::error('PayMongo API Error: ' . $errorBody);
-            
-            // Check for specific errors
-            if ($response->status() === 401) {
-                throw new \Exception('Invalid PayMongo API key');
-            } elseif ($response->status() === 402) {
-                throw new \Exception('Payment processing not allowed');
-            } else {
-                throw new \Exception('PayMongo API error: ' . $errorBody);
-            }
-        }
-
-    } catch (\Exception $e) {
-        Log::error('PayMongo Exception: ' . $e->getMessage());
-        throw new \Exception('PayMongo service error: ' . $e->getMessage());
-    }
-}
-
-    /**
      * Handle Paymongo webhook
      */
     public function handleWebhook(Request $request)
@@ -85,7 +31,7 @@ class PaymongoController extends Controller
         $payload = $request->getContent();
         $signature = $request->header('Paymongo-Signature');
         
-        Log::info('Paymongo Webhook Received', [
+        Log::info('💰 PAYMONGO WEBHOOK RECEIVED', [
             'payload' => $payload,
             'signature' => $signature
         ]);
@@ -93,27 +39,33 @@ class PaymongoController extends Controller
         try {
             // Verify webhook signature
             if (!$this->verifyWebhookSignature($payload, $signature)) {
-                Log::error('Invalid webhook signature');
+                Log::error('❌ Invalid webhook signature');
                 return response()->json(['error' => 'Invalid signature'], 400);
             }
 
             $data = json_decode($payload, true);
             $eventType = $data['data']['attributes']['type'] ?? null;
+            $resourceType = $data['data']['attributes']['data']['attributes']['type'] ?? null;
             
-            Log::info('Webhook Event Type: ' . $eventType);
+            Log::info('🔍 Webhook Event Details', [
+                'event_type' => $eventType,
+                'resource_type' => $resourceType
+            ]);
 
-            if ($eventType === 'payment_intent.succeeded') {
-                $this->handlePaymentSucceeded($data);
-            } elseif ($eventType === 'payment_intent.payment_failed') {
+            if ($eventType === 'link.payment.paid') {
+                $this->handlePaymentPaid($data);
+            } elseif ($eventType === 'link.payment.failed') {
                 $this->handlePaymentFailed($data);
-            } elseif ($eventType === 'payment_intent.canceled') {
-                $this->handlePaymentCanceled($data);
+            } elseif ($eventType === 'link.payment.expired') {
+                $this->handlePaymentExpired($data);
+            } else {
+                Log::info('🔔 Unhandled webhook event: ' . $eventType);
             }
 
             return response()->json(['status' => 'success']);
 
         } catch (\Exception $e) {
-            Log::error('Webhook processing error: ' . $e->getMessage());
+            Log::error('💥 Webhook processing error: ' . $e->getMessage());
             return response()->json(['error' => 'Webhook processing failed'], 500);
         }
     }
@@ -122,70 +74,83 @@ class PaymongoController extends Controller
      * Verify webhook signature
      */
     private function verifyWebhookSignature($payload, $signature)
-{
-    $webhookSecret = config('services.paymongo.webhook_secret');
-    
-    // For development, skip verification
-    if (app()->environment('local') || app()->environment('development')) {
-        Log::info('Webhook verification skipped for development');
-        return true;
-    }
-    
-    if (!$webhookSecret) {
-        Log::warning('Paymongo webhook secret not set');
-        return false;
-    }
+    {
+        $webhookSecret = config('services.paymongo.webhook_secret');
+        
+        // For development, skip verification
+        if (app()->environment('local') || app()->environment('development')) {
+            Log::info('🔓 Webhook verification skipped for development');
+            return true;
+        }
+        
+        if (!$webhookSecret) {
+            Log::warning('⚠️ Paymongo webhook secret not set');
+            return false;
+        }
 
-    $computedSignature = hash_hmac('sha256', $payload, $webhookSecret);
-    
-    return hash_equals($signature, $computedSignature);
-}
+        $computedSignature = hash_hmac('sha256', $payload, $webhookSecret);
+        
+        return hash_equals($signature, $computedSignature);
+    }
 
     /**
      * Handle successful payment
      */
-    private function handlePaymentSucceeded($data)
+    private function handlePaymentPaid($data)
     {
-        $paymentIntentId = $data['data']['attributes']['data']['id'] ?? null;
-        
-        if (!$paymentIntentId) {
-            Log::error('Payment intent ID not found in webhook');
-            return;
-        }
-
-        $payment = Payment::where('paymongo_payment_intent_id', $paymentIntentId)->first();
-        
-        if ($payment) {
-            $payment->update([
-                'status' => 'completed',
-                'paymongo_status' => 'succeeded',
-                'paymongo_response' => $data,
-            ]);
-
-            // Update Accounts Receivable
-            $ar = AccountsReceivable::where('booking_id', $payment->booking_id)->first();
-            if ($ar) {
-                $remainingAmount = $ar->collectible_amount - $payment->amount;
-                
-                if ($remainingAmount <= 0) {
-                    $ar->markAsPaid();
-                } else {
-                    $ar->update([
-                        'collectible_amount' => $remainingAmount,
-                        'is_paid' => false,
-                    ]);
-                }
-
-                // Recalculate financials
-                $ar->calculateFinancials()->save();
-
-                // Send payment confirmation email
-                $this->sendPaymentConfirmation($ar, $payment);
+        try {
+            $paymentLinkId = $data['data']['attributes']['data']['id'] ?? null;
+            
+            if (!$paymentLinkId) {
+                Log::error('❌ Payment link ID not found in webhook');
+                return;
             }
 
-            Log::info('Payment marked as completed', ['payment_id' => $payment->id]);
-        } else {
-            Log::error('Payment not found for intent: ' . $paymentIntentId);
+            Log::info('💰 Processing paid payment for link: ' . $paymentLinkId);
+
+            // Find payment by provider_payment_id
+            $payment = Payment::where('provider_payment_id', $paymentLinkId)->first();
+            
+            if ($payment) {
+                Log::info('✅ Payment found: ' . $payment->id);
+
+                // Update payment status
+                $payment->update([
+                    'status' => 'completed',
+                    'paid_at' => now(),
+                    'payment_date' => now(),
+                    'provider_response' => $data,
+                ]);
+
+                // Update Accounts Receivable
+                $ar = AccountsReceivable::where('booking_id', $payment->booking_id)->first();
+                if ($ar) {
+                    // Mark as fully paid since we enforce full payments
+                    $ar->update([
+                        'collectible_amount' => 0,
+                        'is_paid' => true
+                    ]);
+
+                    // Recalculate financials
+                    $ar->calculateFinancials()->save();
+
+                    Log::info('✅ Accounts Receivable updated for booking: ' . $payment->booking_id);
+                }
+
+                // Send payment confirmation email
+                $this->sendPaymentConfirmation($payment);
+
+                Log::info('✅ Payment marked as completed', [
+                    'payment_id' => $payment->id,
+                    'amount' => $payment->amount,
+                    'booking_id' => $payment->booking_id
+                ]);
+            } else {
+                Log::error('❌ Payment not found for link: ' . $paymentLinkId);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('💥 Error handling payment paid: ' . $e->getMessage());
         }
     }
 
@@ -194,79 +159,97 @@ class PaymongoController extends Controller
      */
     private function handlePaymentFailed($data)
     {
-        $paymentIntentId = $data['data']['attributes']['data']['id'] ?? null;
-        
-        if ($paymentIntentId) {
-            $payment = Payment::where('paymongo_payment_intent_id', $paymentIntentId)->first();
-            
-            if ($payment) {
-                $payment->update([
-                    'status' => 'failed',
-                    'paymongo_status' => 'failed',
-                    'paymongo_response' => $data,
-                ]);
-                
-                Log::info('Payment marked as failed', ['payment_id' => $payment->id]);
-            }
-        }
-    }
-
-    /**
-     * Handle canceled payment
-     */
-    private function handlePaymentCanceled($data)
-    {
-        $paymentIntentId = $data['data']['attributes']['data']['id'] ?? null;
-        
-        if ($paymentIntentId) {
-            $payment = Payment::where('paymongo_payment_intent_id', $paymentIntentId)->first();
-            
-            if ($payment) {
-                $payment->update([
-                    'status' => 'cancelled',
-                    'paymongo_status' => 'canceled',
-                    'paymongo_response' => $data,
-                ]);
-                
-                Log::info('Payment marked as cancelled', ['payment_id' => $payment->id]);
-            }
-        }
-    }
-
-    private function sendPaymentConfirmation($ar, $payment)
-    {
-        // Implement email sending logic here
-        // You can use similar logic as in AccountsReceivableController
         try {
-            $booking = $ar->booking;
-            $user = $booking->user;
+            $paymentLinkId = $data['data']['attributes']['data']['id'] ?? null;
             
-            // You'll need to create this Mailable
-            // Mail::to($user->email)->send(new \App\Mail\PaymentConfirmation($ar, $payment));
-            
-            Log::info('Payment confirmation email would be sent to: ' . $user->email, [
-                'payment_id' => $payment->id,
-                'booking_id' => $booking->id
-            ]);
+            if ($paymentLinkId) {
+                $payment = Payment::where('provider_payment_id', $paymentLinkId)->first();
+                
+                if ($payment) {
+                    $payment->update([
+                        'status' => 'failed',
+                        'failed_at' => now(),
+                        'provider_response' => $data,
+                    ]);
+                    
+                    Log::info('❌ Payment marked as failed', ['payment_id' => $payment->id]);
+                }
+            }
         } catch (\Exception $e) {
-            Log::error('Failed to send payment confirmation: ' . $e->getMessage());
+            Log::error('💥 Error handling payment failed: ' . $e->getMessage());
         }
     }
 
     /**
-     * Get payment intent status
+     * Handle expired payment
      */
-    public function getPaymentStatus($paymentIntentId)
+    private function handlePaymentExpired($data)
     {
         try {
+            $paymentLinkId = $data['data']['attributes']['data']['id'] ?? null;
+            
+            if ($paymentLinkId) {
+                $payment = Payment::where('provider_payment_id', $paymentLinkId)->first();
+                
+                if ($payment) {
+                    $payment->update([
+                        'status' => 'failed',
+                        'failed_at' => now(),
+                        'provider_response' => $data,
+                    ]);
+                    
+                    Log::info('⏰ Payment marked as expired', ['payment_id' => $payment->id]);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('💥 Error handling payment expired: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Send payment confirmation email
+     */
+    private function sendPaymentConfirmation(Payment $payment)
+    {
+        try {
+            $booking = $payment->booking;
+            $user = $payment->user;
+            
+            Log::info('📧 Payment confirmation email would be sent to: ' . $user->email, [
+                'payment_id' => $payment->id,
+                'booking_id' => $booking->id,
+                'amount' => $payment->amount
+            ]);
+
+            // Uncomment when you have the Mailable class
+            // Mail::to($user->email)->send(new \App\Mail\PaymentConfirmation($payment));
+            
+        } catch (\Exception $e) {
+            Log::error('❌ Failed to send payment confirmation: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Get payment link status
+     */
+    public function getPaymentStatus($paymentLinkId)
+    {
+        try {
+            Log::info('🔍 Checking payment status for link: ' . $paymentLinkId);
+
             $response = Http::withHeaders([
                 'Authorization' => 'Basic ' . base64_encode($this->secretKey . ':'),
-            ])->get($this->baseUrl . '/payment_intents/' . $paymentIntentId);
+            ])->get($this->baseUrl . '/links/' . $paymentLinkId);
 
             if ($response->successful()) {
                 $data = $response->json();
+                Log::info('✅ Payment status retrieved', [
+                    'link_id' => $paymentLinkId,
+                    'status' => $data['data']['attributes']['status']
+                ]);
                 return response()->json($data['data']);
             } else {
+                Log::error('❌ Failed to get payment status: ' . $response->body());
                 return response()->json([
                     'message' => 'Failed to get payment status',
                     'error' => $response->json()
@@ -274,9 +257,62 @@ class PaymongoController extends Controller
             }
 
         } catch (\Exception $e) {
-            Log::error('Paymongo status check error: ' . $e->getMessage());
+            Log::error('💥 Payment status check error: ' . $e->getMessage());
             return response()->json([
                 'message' => 'Payment status check failed',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Create payment intent (legacy method, kept for compatibility)
+     */
+    public function createPaymentIntent(Request $request)
+    {
+        try {
+            Log::info('🔍 Creating Payment Intent via PayMongo');
+
+            $validated = $request->validate([
+                'amount' => 'required|numeric|min:1',
+                'description' => 'required|string',
+            ]);
+
+            $payload = [
+                'data' => [
+                    'attributes' => [
+                        'amount' => (int)($validated['amount'] * 100),
+                        'payment_method_allowed' => ['gcash', 'card'],
+                        'currency' => 'PHP',
+                        'description' => $validated['description'],
+                    ]
+                ]
+            ];
+
+            $response = Http::withHeaders([
+                'Authorization' => 'Basic ' . base64_encode($this->secretKey . ':'),
+                'Content-Type' => 'application/json',
+            ])->timeout(30)
+              ->post($this->baseUrl . '/payment_intents', $payload);
+
+            Log::info('🔍 Payment Intent Response Status: ' . $response->status());
+            
+            if ($response->successful()) {
+                $data = $response->json();
+                Log::info('✅ Payment Intent Created: ' . $data['data']['id']);
+                return response()->json($data['data']);
+            } else {
+                Log::error('❌ Payment Intent Creation Failed: ' . $response->body());
+                return response()->json([
+                    'message' => 'Failed to create payment intent',
+                    'error' => $response->json()
+                ], 400);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('💥 Payment Intent Creation Error: ' . $e->getMessage());
+            return response()->json([
+                'message' => 'Payment intent creation failed',
                 'error' => $e->getMessage()
             ], 500);
         }

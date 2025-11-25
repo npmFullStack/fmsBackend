@@ -21,17 +21,24 @@ return new class extends Migration
             $table->enum('status', ['pending', 'processing', 'completed', 'failed', 'cancelled'])->default('pending');
             $table->date('payment_date')->nullable();
             
-            // GCash specific fields
-            $table->string('gcash_mobile_number')->nullable();
-            $table->string('gcash_receipt')->nullable();
-            $table->string('gcash_transaction_id')->nullable();
-
-            // Paymongo specific fields
-            $table->string('paymongo_payment_intent_id')->nullable();
-            $table->string('paymongo_source_id')->nullable();
-            $table->json('paymongo_response')->nullable();
-            $table->string('paymongo_checkout_url')->nullable();
-            $table->string('paymongo_status')->nullable();
+            // Payment provider fields (for GCash, PayMongo, Bank Transfer)
+            $table->string('provider_payment_id')->nullable(); // Provider's payment ID
+            $table->string('provider_checkout_url')->nullable(); // Checkout URL for redirect
+            $table->json('provider_response')->nullable(); // Full provider response
+            
+            // Customer information for payment
+            $table->string('customer_email')->nullable();
+            $table->string('customer_name')->nullable();
+            $table->string('customer_phone')->nullable();
+            
+            // Payment timeline
+            $table->timestamp('checkout_created_at')->nullable();
+            $table->timestamp('paid_at')->nullable();
+            $table->timestamp('failed_at')->nullable();
+            
+            // Additional metadata
+            $table->text('description')->nullable();
+            $table->json('metadata')->nullable();
             
             // Timestamps
             $table->timestamps();
@@ -41,9 +48,11 @@ return new class extends Migration
             $table->index('user_id');
             $table->index('status');
             $table->index('reference_number');
+            $table->index('payment_method');
+            $table->index('provider_payment_id');
             $table->index('created_at');
             $table->index('payment_date');
-            $table->index('paymongo_payment_intent_id');
+            $table->index('paid_at');
         });
     }
 

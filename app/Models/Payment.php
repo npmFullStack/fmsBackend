@@ -18,20 +18,27 @@ class Payment extends Model
         'amount',
         'status',
         'payment_date',
-        'gcash_mobile_number',
-        'gcash_receipt',
-        'gcash_transaction_id',
-        'paymongo_payment_intent_id',
-        'paymongo_source_id',
-        'paymongo_response',
-        'paymongo_checkout_url',
-        'paymongo_status'
+        'provider_payment_id',
+        'provider_checkout_url',
+        'provider_response',
+        'customer_email',
+        'customer_name',
+        'customer_phone',
+        'checkout_created_at',
+        'paid_at',
+        'failed_at',
+        'description',
+        'metadata'
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'payment_date' => 'date',
-        'paymongo_response' => 'array',
+        'provider_response' => 'array',
+        'metadata' => 'array',
+        'checkout_created_at' => 'datetime',
+        'paid_at' => 'datetime',
+        'failed_at' => 'datetime',
         'created_at' => 'datetime',
         'updated_at' => 'datetime'
     ];
@@ -94,7 +101,7 @@ class Payment extends Model
     public static function generateReferenceNumber()
     {
         do {
-            $number = 'PAY' . strtoupper(\Illuminate\Support\Str::random(3)) . rand(1000, 9999);
+            $number = 'PAY' . date('Ymd') . rand(1000, 9999);
         } while (self::where('reference_number', $number)->exists());
 
         return $number;
@@ -118,6 +125,25 @@ class Payment extends Model
         return in_array($this->status, ['pending', 'processing']);
     }
 
+    // Mark as completed
+    public function markAsCompleted()
+    {
+        $this->update([
+            'status' => 'completed',
+            'paid_at' => now(),
+            'payment_date' => now(),
+        ]);
+    }
+
+    // Mark as failed
+    public function markAsFailed()
+    {
+        $this->update([
+            'status' => 'failed',
+            'failed_at' => now(),
+        ]);
+    }
+
     // Boot method
     protected static function boot()
     {
@@ -126,6 +152,13 @@ class Payment extends Model
         static::creating(function ($payment) {
             if (!$payment->reference_number) {
                 $payment->reference_number = self::generateReferenceNumber();
+            }
+            
+            // Set customer information from user
+            if ($payment->user && !$payment->customer_email) {
+                $payment->customer_email = $payment->user->email;
+                $payment->customer_name = $payment->user->first_name . ' ' . $payment->user->last_name;
+                $payment->customer_phone = $payment->user->contact_number;
             }
         });
     }
