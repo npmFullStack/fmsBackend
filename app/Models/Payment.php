@@ -18,29 +18,17 @@ class Payment extends Model
         'amount',
         'status',
         'payment_date',
-        'provider_payment_id',
-        'provider_checkout_url',
-        'provider_response',
-        'customer_email',
-        'customer_name',
-        'customer_phone',
-        'checkout_created_at',
-        'paid_at',
-        'failed_at',
-        'description',
-        'metadata'
+        'paymongo_payment_id',
+        'paymongo_checkout_url',
+        'paymongo_response',
+        'paid_at'
     ];
 
     protected $casts = [
         'amount' => 'decimal:2',
         'payment_date' => 'date',
-        'provider_response' => 'array',
-        'metadata' => 'array',
-        'checkout_created_at' => 'datetime',
-        'paid_at' => 'datetime',
-        'failed_at' => 'datetime',
-        'created_at' => 'datetime',
-        'updated_at' => 'datetime'
+        'paymongo_response' => 'array',
+        'paid_at' => 'datetime'
     ];
 
     // Relationships
@@ -54,19 +42,7 @@ class Payment extends Model
         return $this->belongsTo(User::class);
     }
 
-    public function accountsReceivable()
-    {
-        return $this->belongsTo(AccountsReceivable::class, 'booking_id', 'booking_id');
-    }
-
     // Scopes
-    public function scopeNotDeleted($query)
-    {
-        return $query->whereHas('booking', function($q) {
-            $q->where('is_deleted', false);
-        });
-    }
-
     public function scopePending($query)
     {
         return $query->where('status', 'pending');
@@ -77,9 +53,9 @@ class Payment extends Model
         return $query->where('status', 'processing');
     }
 
-    public function scopeCompleted($query)
+    public function scopePaid($query)
     {
-        return $query->where('status', 'completed');
+        return $query->where('status', 'paid');
     }
 
     public function scopeFailed($query)
@@ -87,61 +63,20 @@ class Payment extends Model
         return $query->where('status', 'failed');
     }
 
-    public function scopeByUser($query, $userId)
-    {
-        return $query->where('user_id', $userId);
-    }
-
-    public function scopeByPaymentMethod($query, $method)
-    {
-        return $query->where('payment_method', $method);
-    }
-
     // Generate reference number
     public static function generateReferenceNumber()
     {
         do {
-            $number = 'PAY' . date('Ymd') . rand(1000, 9999);
+            $number = 'PAY' . date('YmdHis') . rand(100, 999);
         } while (self::where('reference_number', $number)->exists());
 
         return $number;
     }
 
     // Check if payment is successful
-    public function getIsSuccessfulAttribute()
+    public function getIsPaidAttribute()
     {
-        return $this->status === 'completed';
-    }
-
-    // Check if payment is pending
-    public function getIsPendingAttribute()
-    {
-        return $this->status === 'pending';
-    }
-
-    // Check if payment can be processed
-    public function getCanProcessAttribute()
-    {
-        return in_array($this->status, ['pending', 'processing']);
-    }
-
-    // Mark as completed
-    public function markAsCompleted()
-    {
-        $this->update([
-            'status' => 'completed',
-            'paid_at' => now(),
-            'payment_date' => now(),
-        ]);
-    }
-
-    // Mark as failed
-    public function markAsFailed()
-    {
-        $this->update([
-            'status' => 'failed',
-            'failed_at' => now(),
-        ]);
+        return $this->status === 'paid';
     }
 
     // Boot method
@@ -152,13 +87,6 @@ class Payment extends Model
         static::creating(function ($payment) {
             if (!$payment->reference_number) {
                 $payment->reference_number = self::generateReferenceNumber();
-            }
-            
-            // Set customer information from user
-            if ($payment->user && !$payment->customer_email) {
-                $payment->customer_email = $payment->user->email;
-                $payment->customer_name = $payment->user->first_name . ' ' . $payment->user->last_name;
-                $payment->customer_phone = $payment->user->contact_number;
             }
         });
     }

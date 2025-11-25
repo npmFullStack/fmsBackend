@@ -281,7 +281,9 @@ public function approveBooking(Request $request, $id)
     DB::beginTransaction();
 
     try {
-        $booking = Booking::notDeleted()->find($id);
+        $booking = Booking::notDeleted()
+            ->with(['containerSize', 'origin', 'destination'])
+            ->find($id);
 
         if (!$booking) {
             return response()->json(['message' => 'Booking not found'], 404);
@@ -291,60 +293,47 @@ public function approveBooking(Request $request, $id)
             return response()->json(['message' => 'Booking is already approved'], 400);
         }
 
-        // Generate random password
-        $password = Str::random(8);
+        // Generate tracking numbers if they don't exist
+        $trackingUpdates = [];
+        if (!$booking->booking_number) {
+            $trackingUpdates['booking_number'] = Booking::generateBookingNumber();
+        }
+        if (!$booking->hwb_number) {
+            $trackingUpdates['hwb_number'] = Booking::generateHwbNumber();
+        }
+        if (!$booking->van_number) {
+            $trackingUpdates['van_number'] = Booking::generateVanNumber();
+        }
 
-        // Find or create user
-        $user = User::where('email', $booking->email)->first();
+        // Update booking status and tracking numbers
+        $booking->update(array_merge([
+            'status' => 'approved',
+            'booking_status' => 'pending',
+        ], $trackingUpdates));
 
-        if (!$user) {
-            // Create new user
-            $user = User::create([
-                'first_name' => $booking->first_name,
-                'last_name' => $booking->last_name,
-                'email' => $booking->email,
-                'contact_number' => $booking->contact_number,
-                'password' => Hash::make($password),
-                'email_verified_at' => now(),
-                'is_deleted' => false,
-                'role' => 'customer', // Make sure to set the role
-            ]);
-        } else {
-            // Update existing user's password
-            $user->update([
-                'password' => Hash::make($password),
-                'is_deleted' => false,
+        // Create cargo monitoring record if it doesn't exist
+        if (!$booking->cargoMonitoring) {
+            \App\Models\CargoMonitoring::create([
+                'booking_id' => $booking->id,
+                'pending_at' => now(),
+                'current_status' => 'Pending'
             ]);
         }
 
-        // Generate tracking numbers
-        $booking->generateTrackingNumbers();
-
-        // Update booking
-        $booking->update([
-            'user_id' => $user->id,
-            'status' => 'approved',
-            'booking_status' => 'pending',
-        ]);
-
-        // CREATE OR UPDATE CARGO MONITORING RECORD
-        \App\Models\CargoMonitoring::create([
-            'booking_id' => $booking->id,
-            'pending_at' => now(),
-            'current_status' => 'Pending'
-        ]);
-
-        // Send email with password
-        $this->sendApprovalEmail($booking, $password);
-
         DB::commit();
 
+        // Reload the booking with relationships
+        $booking->load(['containerSize', 'origin', 'destination', 'cargoMonitoring']);
+
         return response()->json([
-            'message' => 'Booking approved successfully. Password sent to customer.',
-            'booking' => $booking->load(['user', 'containerSize', 'origin', 'destination', 'shippingLine', 'truckComp', 'items', 'cargoMonitoring'])
+            'message' => 'Booking approved successfully.',
+            'booking' => $booking
         ]);
+
     } catch (\Exception $e) {
         DB::rollBack();
+        \Log::error('Booking approval failed: ' . $e->getMessage());
+        
         return response()->json([
             'message' => 'Failed to approve booking',
             'error' => $e->getMessage()
@@ -353,26 +342,7 @@ public function approveBooking(Request $request, $id)
 }
    
 
-private function sendApprovalEmail($booking, $password)
-{
-    try {
-        // Fixed: Use Mail::to instead of Malinto
-        Mail::to($booking->email)->send(new \App\Mail\BookingApproved($booking, $password));
 
-        \Log::info('Approval email sent successfully', [
-            'to' => $booking->email,
-            'booking_id' => $booking->id
-        ]);
-    } catch (Exception $e) {
-        \Log::error('Failed to send approval email: '. $e->getMessage(), [
-            'to' => $booking->email,
-            'booking_id' => $booking->id,
-            'error' => $e->getMessage()
-        ]);
-        // You can choose to throw the exception or just log it
-        throw $e; // Uncomment this if you want the approval to fail when email fails
-    }
-}
     public function destroy($id)
     {
         $booking = Booking::notDeleted()->find($id);

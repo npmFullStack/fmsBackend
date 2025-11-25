@@ -173,24 +173,20 @@ Route::prefix('accounts-receivables')->group(function () {
     Route::post('/{id}/send-payment-email', [AccountsReceivableController::class, 'sendPaymentEmail']);
 });
 
-// Payments Route Group
-Route::prefix('payments')->group(function () {
-    Route::get('/', [PaymentController::class, 'index']);
-    Route::post('/', [PaymentController::class, 'store']);
-    Route::get('/{id}', [PaymentController::class, 'show']);
-    Route::put('/{id}', [PaymentController::class, 'update']);
-    Route::delete('/{id}', [PaymentController::class, 'destroy']);
-    Route::get('/booking/{bookingId}', [PaymentController::class, 'getByBooking']);
-    Route::post('/{id}/process-gcash', [PaymentController::class, 'processGCashPayment']);
-    Route::get('/{id}/status', [PaymentController::class, 'checkPaymentStatus']);
-});
 
-// PayMongo routes
-Route::prefix('paymongo')->group(function () {
-    Route::post('/create-payment-intent', [PaymongoController::class, 'createPaymentIntent']);
-    Route::post('/webhook', [PaymongoController::class, 'handleWebhook']);
-    Route::get('/payment-status/{paymentIntentId}', [PaymongoController::class, 'getPaymentStatus']);
-});
+
+
+// Customer booking payment route
+Route::post('/customer/bookings/{bookingId}/pay', [PaymentController::class, 'createPayment']);
+
+// Payment status check
+Route::get('/payments/{paymentId}/status', [PaymentController::class, 'checkPaymentStatus']);
+
+// Paymongo webhook (must be public - no auth)
+Route::post('/payments/webhook', [PaymentController::class, 'handleWebhook']);
+
+
+
 
 // Customer-specific routes 
 Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
