@@ -5,12 +5,5 @@ services:
     plan: free
     dockerfilePath: ./Dockerfile
     region: oregon
-    envVars:
-      - key: APP_ENV
-        value: production
-      - key: APP_DEBUG
-        value: false
-      - key: LOG_CHANNEL
-        value: stderr
     healthCheckPath: /health
     autoDeploy: true
