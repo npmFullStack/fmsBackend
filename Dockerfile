@@ -42,13 +42,8 @@ RUN chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
 # Generate storage link
 RUN php artisan storage:link
 
-# Optimize Laravel for production (ADDED THIS)
-RUN php artisan config:cache
-RUN php artisan route:cache
-RUN php artisan view:cache
-
 # Expose port 80
 EXPOSE 80
 
-# FIXED: Remove database wiping - use safe command
-CMD ["apache2-foreground"]
+# Start Apache server 
+CMD sh -c "apache2-foreground"
