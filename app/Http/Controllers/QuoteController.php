@@ -152,50 +152,81 @@ class QuoteController extends Controller
     }
 }
 
-    public function sendQuote(Request $request, $id)
-    {
-        DB::beginTransaction();
 
-        try {
-            $quote = Quote::notDeleted()->find($id);
+public function sendQuote(Request $request, $id)
+{
+    DB::beginTransaction();
 
-            if (!$quote) {
-                return response()->json(['message' => 'Quote not found'], 404);
-            }
+    try {
+        $quote = Quote::notDeleted()->find($id);
 
-            $validated = $request->validate([
-                'charges' => 'required|array',
-                'charges.*.description' => 'required|string',
-                'charges.*.amount' => 'required|numeric|min:0',
-                'total_amount' => 'required|numeric|min:0',
-            ]);
-
-            // Update quote with charges and mark as sent
-            $quote->update([
-                'charges' => $validated['charges'],
-                'total_amount' => $validated['total_amount'],
-                'status' => 'sent',
-                'sent_at' => now(),
-            ]);
-
-            // Send email to customer
-            $this->sendQuoteEmail($quote);
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Quote sent successfully',
-                'quote' => $quote->load(['items', 'containerSize', 'origin', 'destination'])
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Failed to send quote',
-                'error' => $e->getMessage()
-            ], 500);
+        if (!$quote) {
+            return response()->json(['message' => 'Quote not found'], 404);
         }
+
+        $validated = $request->validate([
+            'charges' => 'required|array',
+            'charges.*.description' => 'required|string',
+            'charges.*.amount' => 'required|numeric|min:0',
+            'total_amount' => 'required|numeric|min:0',
+        ]);
+
+        // Update quote with charges and mark as sent
+        $quote->update([
+            'charges' => $validated['charges'],
+            'total_amount' => $validated['total_amount'],
+            'status' => 'sent',
+            'sent_at' => now(),
+        ]);
+
+        DB::commit();
+
+        // Send email in background (non-blocking)
+        $this->sendQuoteEmailBackground($quote);
+
+        return response()->json([
+            'message' => 'Quote sent successfully! Email is being processed.',
+            'quote' => $quote->load(['items', 'containerSize', 'origin', 'destination'])
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        \Log::error('Failed to send quote: ' . $e->getMessage(), [
+            'quote_id' => $id,
+            'error' => $e->getMessage()
+        ]);
+        
+        return response()->json([
+            'message' => 'Failed to send quote',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
+
+private function sendQuoteEmailBackground($quote)
+{
+    try {
+        // Use Artisan command in background
+        $artisanPath = base_path('artisan');
+        $command = "php \"{$artisanPath}\" send:quote-email {$quote->id} > /dev/null 2>&1 &";
+        
+        if (PHP_OS_FAMILY === 'Windows') {
+            pclose(popen("start /B " . $command, "r"));
+        } else {
+            exec($command);
+        }
+        
+        \Log::info('Quote email background process started', [
+            'quote_id' => $quote->id,
+            'email' => $quote->email
+        ]);
+        
+    } catch (\Exception $e) {
+        \Log::error('Failed to start background email process: ' . $e->getMessage(), [
+            'quote_id' => $quote->id
+        ]);
+    }
+}
 
     public function show($id)
     {
@@ -223,23 +254,5 @@ class QuoteController extends Controller
         return response()->json(['message' => 'Quote deleted successfully'], 200);
     }
 
-    private function sendQuoteEmail($quote)
-    {
-        try {
-            Mail::to($quote->email)->send(new \App\Mail\QuoteSent($quote));
-
-            \Log::info('Quote email sent successfully', [
-                'to' => $quote->email,
-                'quote_id' => $quote->id,
-                'total_amount' => $quote->total_amount
-            ]);
-        } catch (\Exception $e) {
-            \Log::error('Failed to send quote email: '. $e->getMessage(), [
-                'to' => $quote->email,
-                'quote_id' => $quote->id,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
-        }
-    }
+    
 }
