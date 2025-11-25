@@ -13,19 +13,19 @@ return new class extends Migration
             $table->id();
             
             // Customer Information
-            $table->string('first_name');
-            $table->string('last_name');
+            $table->string('first_name')->nullable();
+            $table->string('last_name')->nullable();
             $table->string('email');
             $table->string('contact_number')->nullable();
 
             // Shipper Information
-            $table->string('shipper_first_name');
-            $table->string('shipper_last_name');
+            $table->string('shipper_first_name')->nullable();
+            $table->string('shipper_last_name')->nullable();
             $table->string('shipper_contact')->nullable();
 
             // Consignee Information
-            $table->string('consignee_first_name');
-            $table->string('consignee_last_name');
+            $table->string('consignee_first_name')->nullable();
+            $table->string('consignee_last_name')->nullable();
             $table->string('consignee_contact')->nullable();
 
             // Shipping Details
@@ -46,7 +46,7 @@ return new class extends Migration
 
             // Quote Details
             $table->decimal('total_amount', 10, 2)->nullable();
-            $table->json('charges')->nullable(); // Store quote charges as JSON
+            $table->json('charges')->nullable(); 
             $table->timestamp('sent_at')->nullable();
             $table->enum('status', ['pending', 'sent', 'accepted', 'rejected'])->default('pending');
             $table->boolean('is_deleted')->default(false);

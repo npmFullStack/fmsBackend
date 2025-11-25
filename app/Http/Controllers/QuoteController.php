@@ -181,11 +181,16 @@ public function sendQuote(Request $request, $id)
 
         DB::commit();
 
-        // Send email in background (non-blocking)
-        $this->sendQuoteEmailBackground($quote);
+        // TEST: Send email synchronously first
+        \Log::info("Attempting to send email to: " . $quote->email);
+        \Mail::to($quote->email)->send(new \App\Mail\QuoteSent($quote));
+        \Log::info("Synchronous email sent for quote: " . $quote->id);
+
+        // If synchronous works, then use background
+        // $this->sendQuoteEmailBackground($quote);
 
         return response()->json([
-            'message' => 'Quote sent successfully! Email is being processed.',
+            'message' => 'Quote sent successfully! Email sent.',
             'quote' => $quote->load(['items', 'containerSize', 'origin', 'destination'])
         ]);
 
@@ -193,7 +198,7 @@ public function sendQuote(Request $request, $id)
         DB::rollBack();
         \Log::error('Failed to send quote: ' . $e->getMessage(), [
             'quote_id' => $id,
-            'error' => $e->getMessage()
+            'error' => $e->getTraceAsString()
         ]);
         
         return response()->json([
