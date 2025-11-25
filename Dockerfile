@@ -1,54 +1,50 @@
-# PHP 8.2 with Apache
+# Use the official PHP 8.2 with Apache image
 FROM php:8.2-apache
 
-# Install system packages + required PHP extensions
+# Install required PHP extensions and system packages
 RUN apt-get update && apt-get install -y \
-    git zip unzip libzip-dev libpng-dev libjpeg-dev libfreetype6-dev \
-    libonig-dev libxml2-dev curl \
+    git zip unzip libpng-dev libonig-dev libxml2-dev curl libzip-dev \
     && docker-php-ext-configure gd --with-freetype --with-jpeg \
-    && docker-php-ext-install pdo_mysql mbstring exif bcmath gd zip opcache
+    && docker-php-ext-install pdo_mysql mbstring exif pcntl bcmath gd zip
 
-# Enable Apache rewrite
+# Enable Apache mod_rewrite
 RUN a2enmod rewrite
 
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy composer files first (layer caching)
+# Copy composer files first for better caching
 COPY composer.json composer.lock ./
 
 # Install Composer
 COPY --from=composer:2.6 /usr/bin/composer /usr/bin/composer
 
-# Install dependencies (production)
+# Install PHP dependencies
 RUN composer install --no-dev --optimize-autoloader --no-scripts
 
-# Copy the full project
+# Copy all project files
 COPY . .
 
-# Laravel optimize commands (safe)
-RUN php artisan config:cache \
-    && php artisan route:cache \
-    && php artisan view:cache
+# Fix DocumentRoot (your original command was broken)
+RUN sed -i 's#/var/www/html#/var/www/html/public#g' /etc/apache2/sites-available/000-default.conf
 
-# Create storage link
+# Enable .htaccess files (same as your file)
+RUN echo "<Directory /var/www/html/public>" > /etc/apache2/conf-available/laravel.conf \
+    && echo "    Options Indexes FollowSymLinks" >> /etc/apache2/conf-available/laravel.conf \
+    && echo "    AllowOverride All" >> /etc/apache2/conf-available/laravel.conf \
+    && echo "    Require all granted" >> /etc/apache2/conf-available/laravel.conf \
+    && echo "</Directory>" >> /etc/apache2/conf-available/laravel.conf
+
+RUN a2enconf laravel
+
+# Permissions for Laravel
+RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache \
+    && chmod -R 775 /var/www/html/storage /var/www/html/bootstrap/cache
+
+# Generate storage link (safe)
 RUN php artisan storage:link || true
 
-# Fix Apache DocumentRoot
-RUN sed -i 's#/var/www/html#/var/www/html/public#g' \
-    /etc/apache2/sites-available/000-default.conf
-
-# Permissions
-RUN chown -R www-data:www-data storage bootstrap/cache \
-    && chmod -R 775 storage bootstrap/cache
-
-# Enable basic performance features for production
-RUN echo "opcache.enable=1" >> /usr/local/etc/php/conf.d/opcache.ini \
-    && echo "opcache.memory_consumption=256" >> /usr/local/etc/php/conf.d/opcache.ini \
-    && echo "opcache.interned_strings_buffer=32" >> /usr/local/etc/php/conf.d/opcache.ini \
-    && echo "opcache.max_accelerated_files=20000" >> /usr/local/etc/php/conf.d/opcache.ini \
-    && echo "opcache.validate_timestamps=0" >> /usr/local/etc/php/conf.d/opcache.ini
+# Remove migrate:fresh and seeding (was causing 500 error)
+CMD ["apache2-foreground"]
 
 EXPOSE 80
-
-CMD ["apache2-foreground"]
