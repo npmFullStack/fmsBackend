@@ -206,3 +206,31 @@ Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
 
 
 Route::get('/dashboard-data', [DashboardController::class, 'getDashboardData'])->middleware('auth:sanctum');
+
+// Add to api.php temporarily
+Route::get('/test-paymongo', function () {
+    try {
+        $secret = config('services.paymongo.secret_key');
+        $response = Http::withHeaders([
+            'Authorization' => 'Basic ' . base64_encode($secret . ':'),
+        ])->get('https://api.paymongo.com/v1/links');
+        
+        return response()->json([
+            'status' => $response->status(),
+            'data' => $response->json()
+        ]);
+    } catch (\Exception $e) {
+        return response()->json(['error' => $e->getMessage()], 500);
+    }
+});
+
+// Mock payment routes for development
+Route::prefix('mock-payment')->group(function () {
+    Route::post('/{bookingId}/create', [MockPaymentController::class, 'createMockPayment'])->middleware('auth:sanctum');
+    Route::post('/{paymentId}/process', [MockPaymentController::class, 'processMockPayment']);
+    Route::get('/{paymentId}/webhook', [MockPaymentController::class, 'mockWebhook']);
+});
+
+// Web route for mock checkout
+Route::get('/mock-checkout/{paymentId}', [MockPaymentController::class,
+'mockCheckout']);
