@@ -25,3 +25,12 @@ Route::get('/debug', function() {
         echo "Error: " . $e->getMessage() . "<br>";
     }
 });
+
+// Add to routes/web.php
+Route::get('/health', function() {
+    return response()->json([
+        'status' => 'ok',
+        'timestamp' => now(),
+        'environment' => app()->environment()
+    ]);
+});
