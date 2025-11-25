@@ -17,6 +17,9 @@ use App\Http\Controllers\AccountsPayableController;
 use App\Http\Controllers\AccountsReceivableController;
 use App\Http\Controllers\PaymentController;
 use App\Http\Controllers\PaymongoController;
+use App\Http\Controllers\DashboardController;
+
+
 
 Route::prefix('auth')->group(function () {
     Route::post('/register', [AuthController::class, 'register']);
@@ -200,3 +203,6 @@ Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
     Route::get('/accounts-receivables', [AccountsReceivableController::class, 'getCustomerReceivables']);
     Route::post('/payments/paymongo', [PaymongoController::class, 'createPaymentIntent']);
 });
+
+
+Route::get('/dashboard-data', [DashboardController::class, 'getDashboardData'])->middleware('auth:sanctum');

@@ -1,5 +1,4 @@
 <?php
-// [file name]: PaymentController.php
 
 namespace App\Http\Controllers;
 
@@ -15,11 +14,13 @@ class PaymentController extends Controller
 {
     private $paymongoSecret;
     private $paymongoUrl;
+    private $webhookSecret;
 
     public function __construct()
     {
         $this->paymongoSecret = config('services.paymongo.secret_key');
         $this->paymongoUrl = 'https://api.paymongo.com/v1';
+        $this->webhookSecret = config('services.paymongo.webhook_secret');
     }
 
     /**
@@ -69,7 +70,7 @@ class PaymentController extends Controller
             $payment = Payment::create([
                 'booking_id' => $booking->id,
                 'user_id' => $user->id,
-                'payment_method' => 'gcash',
+                'payment_method' => $request->payment_method ?? 'gcash',
                 'amount' => $paymentAmount,
                 'status' => 'pending',
                 'payment_date' => now(),
@@ -114,7 +115,6 @@ class PaymentController extends Controller
      */
     public function store(Request $request)
     {
-        // You can keep this for admin-created payments or redirect to createPayment
         return $this->createPayment($request, $request->booking_id);
     }
 
@@ -186,7 +186,6 @@ class PaymentController extends Controller
      */
     public function processGCashPayment(Request $request, $id)
     {
-        // You can keep this for alternative GCash processing
         return response()->json(['message' => 'Use createPayment instead']);
     }
 
@@ -214,7 +213,7 @@ class PaymentController extends Controller
     }
 
     /**
-     * Handle Paymongo webhook
+     * Handle Paymongo webhook with signature verification
      */
     public function handleWebhook(Request $request)
     {
@@ -227,15 +226,26 @@ class PaymentController extends Controller
         ]);
 
         try {
+            // Verify webhook signature
+            if (!$this->verifyWebhookSignature($payload, $signature)) {
+                Log::error('❌ Webhook signature verification failed');
+                return response()->json(['error' => 'Invalid signature'], 401);
+            }
+
             $data = json_decode($payload, true);
             $eventType = $data['data']['attributes']['type'] ?? null;
             
             Log::info('🔍 Webhook Event', ['event_type' => $eventType]);
 
-            if ($eventType === 'link.payment.paid') {
+            // Handle different event types
+            if ($eventType === 'payment.paid') {
                 $this->handlePaymentPaid($data);
-            } elseif ($eventType === 'link.payment.failed') {
+            } elseif ($eventType === 'payment.failed') {
                 $this->handlePaymentFailed($data);
+            } elseif ($eventType === 'source.chargeable') {
+                $this->handleSourceChargeable($data);
+            } elseif ($eventType === 'payment.pending') {
+                Log::info('⏳ Payment pending', ['payment_id' => $data['data']['id'] ?? null]);
             }
 
             return response()->json(['status' => 'success']);
@@ -243,6 +253,64 @@ class PaymentController extends Controller
         } catch (\Exception $e) {
             Log::error('💥 Webhook processing error: ' . $e->getMessage());
             return response()->json(['error' => 'Webhook processing failed'], 500);
+        }
+    }
+
+    /**
+     * Verify Paymongo webhook signature
+     */
+    private function verifyWebhookSignature($payload, $signature)
+    {
+        try {
+            $webhookSecret = $this->webhookSecret;
+            
+            if (!$webhookSecret) {
+                Log::error('❌ Webhook secret not configured');
+                return false;
+            }
+
+            // Extract timestamp and signatures from header
+            $parts = explode(',', $signature);
+            $timestamp = null;
+            $signatures = [];
+            
+            foreach ($parts as $part) {
+                if (strpos($part, 't=') === 0) {
+                    $timestamp = substr($part, 2);
+                } elseif (strpos($part, 'v1=') === 0) {
+                    $signatures[] = substr($part, 3);
+                }
+            }
+
+            if (!$timestamp || empty($signatures)) {
+                Log::error('❌ Invalid signature format');
+                return false;
+            }
+
+            // Verify timestamp (within 5 minutes)
+            if (abs(time() - $timestamp) > 300) {
+                Log::error('❌ Webhook timestamp expired');
+                return false;
+            }
+
+            // Compute expected signature
+            $signedPayload = $timestamp . '.' . $payload;
+            $expectedSignature = hash_hmac('sha256', $signedPayload, $webhookSecret);
+
+            // Check if any of the signatures match
+            foreach ($signatures as $signature) {
+                if (hash_equals($expectedSignature, $signature)) {
+                    Log::info('✅ Webhook signature verified');
+                    return true;
+                }
+            }
+
+            Log::error('❌ No matching signature found');
+            return false;
+
+        } catch (\Exception $e) {
+            Log::error('💥 Webhook verification error: ' . $e->getMessage());
+            return false;
         }
     }
 
@@ -258,6 +326,12 @@ class PaymentController extends Controller
                         'amount' => (int)($payment->amount * 100),
                         'description' => 'Payment for Booking #' . $booking->booking_number,
                         'remarks' => 'Shipping booking payment',
+                        'metadata' => [
+                            'booking_id' => $booking->id,
+                            'payment_id' => $payment->id,
+                            'booking_number' => $booking->booking_number,
+                            'user_id' => $payment->user_id
+                        ]
                     ]
                 ]
             ];
@@ -291,49 +365,101 @@ class PaymentController extends Controller
     private function handlePaymentPaid($data)
     {
         try {
-            $paymentLinkId = $data['data']['attributes']['data']['id'] ?? null;
+            $paymentIntentId = $data['data']['attributes']['data']['id'] ?? null;
             
-            if (!$paymentLinkId) {
-                Log::error('❌ Payment link ID not found in webhook');
+            if (!$paymentIntentId) {
+                Log::error('❌ Payment intent ID not found in webhook');
                 return;
             }
 
-            Log::info('💰 Processing paid payment for link: ' . $paymentLinkId);
+            Log::info('💰 Processing paid payment for intent: ' . $paymentIntentId);
 
             // Find payment by paymongo_payment_id
-            $payment = Payment::where('paymongo_payment_id', $paymentLinkId)->first();
+            $payment = Payment::where('paymongo_payment_id', $paymentIntentId)->first();
             
             if ($payment) {
-                // Update payment status to PAID
-                $payment->update([
-                    'status' => 'paid',
-                    'paid_at' => now(),
-                    'payment_date' => now(),
-                    'paymongo_response' => $data,
-                ]);
-
-                // Update Accounts Receivable
-                $ar = AccountsReceivable::where('booking_id', $payment->booking_id)->first();
-                if ($ar) {
-                    $ar->update([
-                        'collectible_amount' => 0,
-                        'is_paid' => true
+                DB::transaction(function () use ($payment, $data) {
+                    // Update payment status to PAID
+                    $payment->update([
+                        'status' => 'paid',
+                        'paid_at' => now(),
+                        'payment_date' => now(),
+                        'paymongo_response' => $data,
                     ]);
 
-                    Log::info('✅ Accounts Receivable updated for booking: ' . $payment->booking_id);
-                }
+                    // Update Accounts Receivable
+                    $ar = AccountsReceivable::where('booking_id', $payment->booking_id)->first();
+                    if ($ar) {
+                        $ar->update([
+                            'collectible_amount' => 0,
+                            'is_paid' => true
+                        ]);
 
-                Log::info('✅ Payment marked as PAID', [
-                    'payment_id' => $payment->id,
-                    'amount' => $payment->amount,
-                    'booking_id' => $payment->booking_id
-                ]);
+                        Log::info('✅ Accounts Receivable updated for booking: ' . $payment->booking_id);
+                    }
+
+                    Log::info('✅ Payment marked as PAID', [
+                        'payment_id' => $payment->id,
+                        'amount' => $payment->amount,
+                        'booking_id' => $payment->booking_id
+                    ]);
+                });
             } else {
-                Log::error('❌ Payment not found for link: ' . $paymentLinkId);
+                Log::error('❌ Payment not found for intent: ' . $paymentIntentId);
+                // Try to find by metadata
+                $this->findPaymentByMetadata($data);
             }
 
         } catch (\Exception $e) {
             Log::error('💥 Error handling payment paid: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Find payment by metadata if direct ID lookup fails
+     */
+    private function findPaymentByMetadata($data)
+    {
+        try {
+            $metadata = $data['data']['attributes']['data']['attributes']['metadata'] ?? [];
+            $paymentId = $metadata['payment_id'] ?? null;
+            $bookingId = $metadata['booking_id'] ?? null;
+
+            if ($paymentId) {
+                $payment = Payment::find($paymentId);
+                if ($payment) {
+                    DB::transaction(function () use ($payment, $data) {
+                        $payment->update([
+                            'status' => 'paid',
+                            'paid_at' => now(),
+                            'payment_date' => now(),
+                            'paymongo_response' => $data,
+                            'paymongo_payment_id' => $data['data']['attributes']['data']['id'] ?? null,
+                        ]);
+
+                        // Update Accounts Receivable
+                        $ar = AccountsReceivable::where('booking_id', $payment->booking_id)->first();
+                        if ($ar) {
+                            $ar->update([
+                                'collectible_amount' => 0,
+                                'is_paid' => true
+                            ]);
+                        }
+
+                        Log::info('✅ Payment found via metadata and marked as PAID', [
+                            'payment_id' => $payment->id,
+                            'booking_id' => $payment->booking_id
+                        ]);
+                    });
+                    return;
+                }
+            }
+
+            // If still not found, log all metadata for debugging
+            Log::error('❌ Payment not found via metadata', ['metadata' => $metadata]);
+
+        } catch (\Exception $e) {
+            Log::error('💥 Error finding payment by metadata: ' . $e->getMessage());
         }
     }
 
@@ -343,10 +469,10 @@ class PaymentController extends Controller
     private function handlePaymentFailed($data)
     {
         try {
-            $paymentLinkId = $data['data']['attributes']['data']['id'] ?? null;
+            $paymentIntentId = $data['data']['attributes']['data']['id'] ?? null;
             
-            if ($paymentLinkId) {
-                $payment = Payment::where('paymongo_payment_id', $paymentLinkId)->first();
+            if ($paymentIntentId) {
+                $payment = Payment::where('paymongo_payment_id', $paymentIntentId)->first();
                 
                 if ($payment) {
                     $payment->update([
@@ -355,10 +481,65 @@ class PaymentController extends Controller
                     ]);
                     
                     Log::info('❌ Payment marked as failed', ['payment_id' => $payment->id]);
+                } else {
+                    // Try to find by metadata
+                    $this->findAndFailPaymentByMetadata($data);
                 }
             }
         } catch (\Exception $e) {
             Log::error('💥 Error handling payment failed: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Find and mark payment as failed by metadata
+     */
+    private function findAndFailPaymentByMetadata($data)
+    {
+        try {
+            $metadata = $data['data']['attributes']['data']['attributes']['metadata'] ?? [];
+            $paymentId = $metadata['payment_id'] ?? null;
+
+            if ($paymentId) {
+                $payment = Payment::find($paymentId);
+                if ($payment) {
+                    $payment->update([
+                        'status' => 'failed',
+                        'paymongo_response' => $data,
+                    ]);
+                    
+                    Log::info('❌ Payment found via metadata and marked as failed', ['payment_id' => $payment->id]);
+                }
+            }
+        } catch (\Exception $e) {
+            Log::error('💥 Error finding and failing payment by metadata: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Handle source chargeable (for GCash, GrabPay, etc.)
+     */
+    private function handleSourceChargeable($data)
+    {
+        try {
+            $sourceId = $data['data']['id'] ?? null;
+            $paymentIntentId = $data['data']['attributes']['data']['attributes']['payment_intent_id'] ?? null;
+            
+            Log::info('🔌 Source chargeable', [
+                'source_id' => $sourceId,
+                'payment_intent_id' => $paymentIntentId
+            ]);
+
+            // For GCash and other payment methods that require source charging
+            if ($sourceId && $paymentIntentId) {
+                Log::info('✅ Source is chargeable, waiting for payment confirmation', [
+                    'source_id' => $sourceId,
+                    'payment_intent_id' => $paymentIntentId
+                ]);
+            }
+
+        } catch (\Exception $e) {
+            Log::error('💥 Error handling source chargeable: ' . $e->getMessage());
         }
     }
 }
