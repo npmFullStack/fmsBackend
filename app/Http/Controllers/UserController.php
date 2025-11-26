@@ -17,7 +17,8 @@ class UserController extends Controller
         $perPage = $request->get('per_page', 10);
         $search = $request->get('search', '');
 
-        $query = User::where('is_deleted', false);
+        // REMOVE the is_deleted filter so restricted users still show in the table
+        $query = User::query(); // Changed from: User::where('is_deleted', false)
 
         if (!empty($search)) {
             $query->where(function($q) use ($search) {
@@ -71,7 +72,8 @@ class UserController extends Controller
 
     public function show($id)
     {
-        $user = User::where('id', $id)->where('is_deleted', false)->first();
+        // Remove the is_deleted filter here too if you want to show restricted users
+        $user = User::find($id);
 
         if (!$user) {
             return response()->json(['message' => 'User not found'], 404);
@@ -82,7 +84,8 @@ class UserController extends Controller
 
     public function update(Request $request, $id)
     {
-        $user = User::where('id', $id)->where('is_deleted', false)->first();
+        // Remove the is_deleted filter here too
+        $user = User::find($id);
 
         if (!$user) {
             return response()->json(['message' => 'User not found'], 404);
@@ -108,7 +111,7 @@ class UserController extends Controller
 
     public function destroy($id)
     {
-        $user = User::where('id', $id)->where('is_deleted', false)->first();
+        $user = User::find($id);
 
         if (!$user) {
             return response()->json(['message' => 'User not found'], 404);
@@ -116,7 +119,7 @@ class UserController extends Controller
 
         $user->update(['is_deleted' => true]);
 
-        return response()->json(['message' => 'User deleted successfully'], 200);
+        return response()->json(['message' => 'User restricted successfully'], 200);
     }
 
     public function bulkDestroy(Request $request)
@@ -128,11 +131,10 @@ class UserController extends Controller
 
         $ids = $validated['ids'];
         User::whereIn('id', $ids)
-            ->where('is_deleted', false)
-            ->update(['is_deleted' => true]);
+            ->update(['is_deleted' => true]); // Remove the is_deleted filter
 
         return response()->json([
-            'message' => count($ids) . ' users deleted successfully'
+            'message' => count($ids) . ' users restricted successfully'
         ], 200);
     }
 
@@ -140,18 +142,18 @@ class UserController extends Controller
     {
         $user = User::find($id);
 
-        if (!$user || $user->is_deleted == false) {
-            return response()->json(['message' => 'User not found or not deleted'], 404);
+        if (!$user) {
+            return response()->json(['message' => 'User not found'], 404);
         }
 
         $user->update(['is_deleted' => false]);
 
-        return response()->json(['message' => 'User restored successfully'], 200);
+        return response()->json(['message' => 'User unrestricted successfully'], 200);
     }
 
     public function promote($id)
     {
-        $user = User::where('id', $id)->where('is_deleted', false)->first();
+        $user = User::find($id);
 
         if (!$user) {
             return response()->json(['message' => 'User not found'], 404);
