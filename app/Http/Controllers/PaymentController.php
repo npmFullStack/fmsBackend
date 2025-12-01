@@ -12,7 +12,7 @@ use Illuminate\Support\Facades\Log;
 
 class PaymentController extends Controller
 {
-    private $paymongoSecret;
+    private $paymongoScret;
     private $paymongoUrl;
     private $webhookSecret;
 
@@ -36,43 +36,69 @@ class PaymentController extends Controller
         return response()->json($payments);
     }
 
-    /**
-     * Create payment for booking (customer)
-     */
-    public function createPayment(Request $request, $bookingId)
-    {
-        DB::beginTransaction();
+  /**
+ * Create payment for booking (customer)
+ */
+public function createPayment(Request $request, $bookingId)
+{
+    DB::beginTransaction();
 
-        try {
-            Log::info('💰 PAYMENT CREATION STARTED', $request->all());
+    try {
+        Log::info('💰 PAYMENT CREATION STARTED', $request->all());
 
-            $user = auth()->user();
-            $booking = Booking::find($bookingId);
+        $user = auth()->user();
+        $booking = Booking::find($bookingId);
 
-            if (!$booking) {
-                return response()->json(['message' => 'Booking not found'], 404);
-            }
+        if (!$booking) {
+            return response()->json(['message' => 'Booking not found'], 404);
+        }
 
-            // Check if user owns the booking
-            if ($booking->user_id !== $user->id) {
-                return response()->json(['message' => 'Unauthorized access to this booking'], 403);
-            }
+        // Check if user owns the booking
+        if ($booking->user_id !== $user->id) {
+            return response()->json(['message' => 'Unauthorized access to this booking'], 403);
+        }
 
-            // Check AR record
-            $ar = AccountsReceivable::where('booking_id', $booking->id)->first();
-            if (!$ar) {
-                return response()->json(['message' => 'No accounts receivable record found'], 404);
-            }
+        // Check AR record
+        $ar = AccountsReceivable::where('booking_id', $booking->id)->first();
+        if (!$ar) {
+            return response()->json(['message' => 'No accounts receivable record found'], 404);
+        }
 
-            $paymentAmount = $ar->collectible_amount;
+        $paymentAmount = $ar->collectible_amount;
+        $paymentMethod = $request->payment_method ?? 'gcash';
 
+        // For Cash on Delivery - create pending payment
+        if ($paymentMethod === 'cod') {
+            $payment = Payment::create([
+                'booking_id' => $booking->id,
+                'user_id' => $user->id,
+                'payment_method' => 'cod',
+                'amount' => $paymentAmount,
+                'status' => 'pending', // COD payments are pending until collected
+                'payment_date' => now(),
+                'reference_number' => Payment::generateReferenceNumber(),
+            ]);
+
+            Log::info('💰 COD Payment record created', ['payment_id' => $payment->id]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Cash on Delivery payment recorded successfully. Payment will be collected upon delivery.',
+                'payment_id' => $payment->id,
+                'status' => 'pending'
+            ], 201);
+        }
+
+        // For GCash - create Paymongo payment link
+        if ($paymentMethod === 'gcash') {
             // Create payment record
             $payment = Payment::create([
                 'booking_id' => $booking->id,
                 'user_id' => $user->id,
-                'payment_method' => $request->payment_method ?? 'gcash',
+                'payment_method' => 'gcash',
                 'amount' => $paymentAmount,
-                'status' => 'pending',
+                'status' => 'processing',
                 'payment_date' => now(),
             ]);
 
@@ -99,16 +125,20 @@ class PaymentController extends Controller
             } else {
                 throw new \Exception('Failed to create Paymongo payment link');
             }
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('💥 PAYMENT CREATION FAILED: ' . $e->getMessage());
-            return response()->json([
-                'message' => 'Failed to create payment',
-                'error' => $e->getMessage()
-            ], 500);
         }
+
+        // If payment method is not supported
+        return response()->json(['message' => 'Unsupported payment method'], 400);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        Log::error('💥 PAYMENT CREATION FAILED: ' . $e->getMessage());
+        return response()->json([
+            'message' => 'Failed to create payment',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     /**
      * Store a newly created payment (legacy method)
