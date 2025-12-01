@@ -68,27 +68,47 @@ public function createPayment(Request $request, $bookingId)
         $paymentMethod = $request->payment_method ?? 'gcash';
 
         // For Cash on Delivery - create pending payment
-        if ($paymentMethod === 'cod') {
-            $payment = Payment::create([
-                'booking_id' => $booking->id,
-                'user_id' => $user->id,
-                'payment_method' => 'cod',
-                'amount' => $paymentAmount,
-                'status' => 'pending', // COD payments are pending until collected
-                'payment_date' => now(),
-                'reference_number' => Payment::generateReferenceNumber(),
-            ]);
 
-            Log::info('💰 COD Payment record created', ['payment_id' => $payment->id]);
+if ($paymentMethod === 'cod') {
+    $payment = Payment::create([
+        'booking_id' => $booking->id,
+        'user_id' => $user->id,
+        'payment_method' => 'cod',
+        'amount' => $paymentAmount,
+        'status' => 'pending', // COD payments are pending until collected
+        'payment_date' => now(),
+        'reference_number' => Payment::generateReferenceNumber(),
+    ]);
 
-            DB::commit();
+    Log::info('💰 COD Payment record created', [
+        'payment_id' => $payment->id,
+        'booking_id' => $booking->id
+    ]);
 
-            return response()->json([
-                'message' => 'Cash on Delivery payment recorded successfully. Payment will be collected upon delivery.',
-                'payment_id' => $payment->id,
-                'status' => 'pending'
-            ], 201);
-        }
+    // Update Accounts Receivable to mark as COD
+    $ar = AccountsReceivable::where('booking_id', $booking->id)->first();
+    if ($ar) {
+        $ar->update([
+            'payment_method' => 'cod',
+            'cod_pending' => true,
+            'collectible_amount' => $paymentAmount, // Still collectible but via COD
+        ]);
+        
+        Log::info('✅ Accounts Receivable updated for COD', [
+            'ar_id' => $ar->id,
+            'cod_pending' => true
+        ]);
+    }
+
+    DB::commit();
+
+    return response()->json([
+        'message' => 'Cash on Delivery payment recorded successfully. Payment will be collected upon delivery.',
+        'payment_id' => $payment->id,
+        'status' => 'pending',
+        'cod_pending' => true // Add this flag
+    ], 201);
+}
 
         // For GCash - create Paymongo payment link
         if ($paymentMethod === 'gcash') {
@@ -348,46 +368,75 @@ public function createPayment(Request $request, $bookingId)
      * Create Paymongo payment link
      */
     private function createPaymongoPaymentLink(Payment $payment, Booking $booking)
-    {
-        try {
-            $payload = [
-                'data' => [
-                    'attributes' => [
-                        'amount' => (int)($payment->amount * 100),
-                        'description' => 'Payment for Booking #' . $booking->booking_number,
-                        'remarks' => 'Shipping booking payment',
-                        'metadata' => [
-                            'booking_id' => $booking->id,
-                            'payment_id' => $payment->id,
-                            'booking_number' => $booking->booking_number,
-                            'user_id' => $payment->user_id
-                        ]
+{
+    try {
+        Log::info('🔍 Creating Paymongo payment link for booking: ' . $booking->id);
+        
+        $payload = [
+            'data' => [
+                'attributes' => [
+                    'amount' => (int)($payment->amount * 100), // Convert to cents
+                    'description' => 'Payment for Booking #' . $booking->booking_number,
+                    'remarks' => 'Shipping booking payment via GCash',
+                    'metadata' => [
+                        'booking_id' => $booking->id,
+                        'payment_id' => $payment->id,
+                        'booking_number' => $booking->booking_number,
+                        'user_id' => $payment->user_id,
+                        'user_email' => $payment->user->email ?? 'customer@example.com'
+                    ],
+                    'checkout' => [
+                        'success' => env('APP_URL') . '/payment/success',
+                        'cancel' => env('APP_URL') . '/payment/cancel',
                     ]
                 ]
-            ];
+            ]
+        ];
 
-            Log::info('🔍 Creating Paymongo payment link', $payload);
+        Log::info('🔍 Paymongo request payload:', $payload);
 
-            $response = Http::withHeaders([
-                'Authorization' => 'Basic ' . base64_encode($this->paymongoSecret . ':'),
-                'Content-Type' => 'application/json',
-            ])->timeout(30)
-              ->post($this->paymongoUrl . '/links', $payload);
+        $response = Http::withHeaders([
+            'Authorization' => 'Basic ' . base64_encode($this->paymongoSecret . ':'),
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        ])->timeout(30)
+          ->post($this->paymongoUrl . '/links', $payload);
 
-            if ($response->successful()) {
-                $data = $response->json();
-                Log::info('✅ Paymongo payment link created', ['payment_id' => $data['data']['id']]);
-                return $data['data'];
+        Log::info('🔍 Paymongo response status: ' . $response->status());
+        Log::info('🔍 Paymongo response body: ' . $response->body());
+
+        if ($response->successful()) {
+            $data = $response->json();
+            Log::info('✅ Paymongo payment link created', [
+                'payment_id' => $data['data']['id'],
+                'checkout_url' => $data['data']['attributes']['checkout_url'] ?? null
+            ]);
+            
+            if (isset($data['data']['attributes']['checkout_url'])) {
+                return [
+                    'id' => $data['data']['id'],
+                    'checkout_url' => $data['data']['attributes']['checkout_url']
+                ];
             } else {
-                Log::error('❌ Paymongo API error: ' . $response->body());
-                throw new \Exception('Paymongo API error: ' . $response->body());
+                Log::error('❌ No checkout_url in Paymongo response');
+                throw new \Exception('No checkout URL returned from Paymongo');
             }
-
-        } catch (\Exception $e) {
-            Log::error('💥 Paymongo payment link creation failed: ' . $e->getMessage());
-            throw $e;
+        } else {
+            $errorBody = $response->body();
+            Log::error('❌ Paymongo API error: ' . $errorBody);
+            
+            // Try to parse error
+            $errorData = json_decode($errorBody, true);
+            $errorMessage = $errorData['errors'][0]['detail'] ?? 'Unknown Paymongo error';
+            
+            throw new \Exception('Paymongo API error: ' . $errorMessage);
         }
+
+    } catch (\Exception $e) {
+        Log::error('💥 Paymongo payment link creation failed: ' . $e->getMessage());
+        throw new \Exception('Failed to create Paymongo payment link: ' . $e->getMessage());
     }
+}
 
     /**
      * Handle successful payment

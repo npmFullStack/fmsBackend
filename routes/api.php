@@ -210,30 +210,34 @@ Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
 
 Route::get('/dashboard-data', [DashboardController::class, 'getDashboardData'])->middleware('auth:sanctum');
 
-// Add to api.php temporarily
-Route::get('/test-paymongo', function () {
+// Add after other routes
+Route::get('/test-paymongo-connection', function () {
     try {
         $secret = config('services.paymongo.secret_key');
+        $base64Key = base64_encode($secret . ':');
+        
+        Log::info('🔍 Testing Paymongo connection');
+        Log::info('🔍 Secret key exists: ' . (!empty($secret) ? 'Yes' : 'No'));
+        Log::info('🔍 Base64 key: ' . substr($base64Key, 0, 20) . '...');
+        
         $response = Http::withHeaders([
-            'Authorization' => 'Basic ' . base64_encode($secret . ':'),
-        ])->get('https://api.paymongo.com/v1/links');
+            'Authorization' => 'Basic ' . $base64Key,
+            'Accept' => 'application/json',
+        ])->timeout(10)
+          ->get('https://api.paymongo.com/v1/links');
+        
+        Log::info('🔍 Paymongo test response status: ' . $response->status());
         
         return response()->json([
             'status' => $response->status(),
-            'data' => $response->json()
+            'success' => $response->successful(),
+            'data' => $response->successful() ? $response->json() : $response->body()
         ]);
     } catch (\Exception $e) {
-        return response()->json(['error' => $e->getMessage()], 500);
+        Log::error('💥 Paymongo test failed: ' . $e->getMessage());
+        return response()->json([
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString()
+        ], 500);
     }
 });
-
-// Mock payment routes for development
-Route::prefix('mock-payment')->group(function () {
-    Route::post('/{bookingId}/create', [MockPaymentController::class, 'createMockPayment'])->middleware('auth:sanctum');
-    Route::post('/{paymentId}/process', [MockPaymentController::class, 'processMockPayment']);
-    Route::get('/{paymentId}/webhook', [MockPaymentController::class, 'mockWebhook']);
-});
-
-// Web route for mock checkout
-Route::get('/mock-checkout/{paymentId}', [MockPaymentController::class,
-'mockCheckout']);
