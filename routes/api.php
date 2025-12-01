@@ -26,6 +26,9 @@ Route::prefix('auth')->group(function () {
     Route::post('/login', [AuthController::class, 'login']);
     Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth:sanctum');
     Route::get('/user', [AuthController::class, 'user'])->middleware('auth:sanctum');
+    // Change password route
+    Route::put('/change-password', [AuthController::class,
+    'changePassword'])->middleware('auth:sanctum');
 });
 
 // Category Route Group

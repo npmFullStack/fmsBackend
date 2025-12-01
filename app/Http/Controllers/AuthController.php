@@ -110,4 +110,30 @@ public function register(Request $request)
             ]
         ]);
     }
+    
+    
+    /**
+ * Change user password
+ */
+public function changePassword(Request $request)
+{
+    $request->validate([
+        'current_password' => 'required',
+        'new_password' => 'required|confirmed|min:6',
+    ]);
+
+    $user = $request->user();
+
+    if (!Hash::check($request->current_password, $user->password)) {
+        throw ValidationException::withMessages([
+            'current_password' => ['The current password is incorrect.'],
+        ]);
+    }
+
+    $user->update([
+        'password' => Hash::make($request->new_password),
+    ]);
+
+    return response()->json(['message' => 'Password changed successfully.']);
+}
 }
