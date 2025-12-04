@@ -6,189 +6,266 @@ use App\Models\Payment;
 use App\Models\Booking;
 use App\Models\AccountsReceivable;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Facades\Log;
 
 class PaymentController extends Controller
 {
-    private $paymongoScret;
-    private $paymongoUrl;
-    private $webhookSecret;
-
-    public function __construct()
-    {
-        $this->paymongoSecret = config('services.paymongo.secret_key');
-        $this->paymongoUrl = 'https://api.paymongo.com/v1';
-        $this->webhookSecret = config('services.paymongo.webhook_secret');
-    }
-
-    /**
-     * Display a listing of payments (admin)
-     */
     public function index(Request $request)
     {
         $perPage = $request->get('per_page', 10);
-        $payments = Payment::with(['booking', 'user'])
-            ->orderBy('created_at', 'desc')
-            ->paginate($perPage);
+        $search = $request->get('search', '');
+        $status = $request->get('status', 'all'); // all, pending, verified, approved, rejected
+        $paymentMethod = $request->get('payment_method', 'all'); // all, cod, gcash
 
-        return response()->json($payments);
-    }
+        $query = Payment::with(['booking', 'user']);
 
-    /**
-     * Create payment for booking (customer)
-     */
-    public function createPayment(Request $request, $bookingId)
-    {
-        DB::beginTransaction();
-
-        try {
-            Log::info('💰 PAYMENT CREATION STARTED', $request->all());
-
-            $user = auth()->user();
-            $booking = Booking::with('user')->find($bookingId);
-
-            if (!$booking) {
-                return response()->json(['message' => 'Booking not found'], 404);
-            }
-
-            // Check if user owns the booking
-            if ($booking->user_id !== $user->id) {
-                return response()->json(['message' => 'Unauthorized access to this booking'], 403);
-            }
-
-            // Check AR record
-            $ar = AccountsReceivable::where('booking_id', $booking->id)->first();
-            if (!$ar) {
-                return response()->json(['message' => 'No accounts receivable record found'], 404);
-            }
-
-            $paymentAmount = $ar->collectible_amount;
-            $paymentMethod = $request->payment_method ?? 'gcash';
-
-            // Validate payment amount
-            if ($paymentAmount <= 0) {
-                return response()->json(['message' => 'No payment amount due'], 400);
-            }
-
-            // For Cash on Delivery - create pending payment
-            if ($paymentMethod === 'cod') {
-                $payment = Payment::create([
-                    'booking_id' => $booking->id,
-                    'user_id' => $user->id,
-                    'payment_method' => 'cod',
-                    'amount' => $paymentAmount,
-                    'status' => 'pending', // COD payments are pending until collected
-                    'payment_date' => now(),
-                    'reference_number' => Payment::generateReferenceNumber(),
-                ]);
-
-                Log::info('💰 COD Payment record created', [
-                    'payment_id' => $payment->id,
-                    'booking_id' => $booking->id,
-                    'amount' => $paymentAmount
-                ]);
-
-                // FIXED: Update Accounts Receivable to mark as COD with proper status
-                $ar->update([
-                    'payment_method' => 'cod',
-                    'cod_pending' => true,
-                    'collectible_amount' => 0, // Set to 0 to hide pay button
-                    'is_paid' => false, // Still not paid until delivery
-                ]);
-                
-                Log::info('✅ Accounts Receivable updated for COD', [
-                    'ar_id' => $ar->id,
-                    'cod_pending' => true,
-                    'collectible_amount' => 0
-                ]);
-
-                DB::commit();
-
-                return response()->json([
-                    'message' => 'Cash on Delivery payment recorded successfully. Payment will be collected upon delivery.',
-                    'payment_id' => $payment->id,
-                    'status' => 'pending',
-                    'cod_pending' => true
-                ], 201);
-            }
-
-            // For GCash - create Paymongo payment link
-            if ($paymentMethod === 'gcash') {
-                // Create payment record
-                $payment = Payment::create([
-                    'booking_id' => $booking->id,
-                    'user_id' => $user->id,
-                    'payment_method' => 'gcash',
-                    'amount' => $paymentAmount,
-                    'status' => 'processing',
-                    'payment_date' => now(),
-                    'reference_number' => Payment::generateReferenceNumber(),
-                ]);
-
-                Log::info('💰 Payment record created for GCash', [
-                    'payment_id' => $payment->id,
-                    'amount' => $paymentAmount
-                ]);
-
-                // Create Paymongo payment link
-                $paymongoResponse = $this->createPaymongoPaymentLink($payment, $booking);
-                
-                if ($paymongoResponse && isset($paymongoResponse['checkout_url'])) {
-                    $payment->update([
-                        'paymongo_payment_id' => $paymongoResponse['id'],
-                        'paymongo_checkout_url' => $paymongoResponse['checkout_url'],
-                        'paymongo_response' => $paymongoResponse,
-                        'status' => 'processing'
-                    ]);
-
-                    // FIXED: Update AR to show payment is processing
-                    $ar->update([
-                        'payment_method' => 'gcash',
-                        'cod_pending' => false,
-                    ]);
-
-                    DB::commit();
-
-                    return response()->json([
-                        'message' => 'Payment checkout created successfully',
-                        'checkout_url' => $paymongoResponse['checkout_url'],
-                        'payment_id' => $payment->id,
-                        'booking_number' => $booking->booking_number,
-                        'amount' => $paymentAmount
-                    ], 201);
-                } else {
-                    throw new \Exception('Failed to create Paymongo payment link');
-                }
-            }
-
-            // If payment method is not supported
-            return response()->json(['message' => 'Unsupported payment method'], 400);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            Log::error('💥 PAYMENT CREATION FAILED: ' . $e->getMessage());
-            Log::error('💥 Stack trace: ' . $e->getTraceAsString());
-            
-            return response()->json([
-                'message' => 'Failed to create payment',
-                'error' => $e->getMessage()
-            ], 500);
+        // Filter by status
+        if ($status !== 'all') {
+            $query->where('status', $status);
         }
+
+        // Filter by payment method
+        if ($paymentMethod !== 'all') {
+            $query->where('payment_method', $paymentMethod);
+        }
+
+        // Search
+        if (!empty($search)) {
+            $query->where(function($q) use ($search) {
+                $q->where('reference_number', 'like', '%' . $search . '%')
+                  ->orWhere('amount', 'like', '%' . $search . '%')
+                  ->orWhereHas('booking', function($q) use ($search) {
+                      $q->where('booking_number', 'like', '%' . $search . '%');
+                  })
+                  ->orWhereHas('user', function($q) use ($search) {
+                      $q->where('first_name', 'like', '%' . $search . '%')
+                        ->orWhere('last_name', 'like', '%' . $search . '%')
+                        ->orWhere('email', 'like', '%' . $search . '%');
+                  });
+            });
+        }
+
+        $sort = $request->get('sort', 'created_at');
+        $direction = $request->get('direction', 'desc');
+
+        $data = $query->orderBy($sort, $direction)->paginate($perPage);
+
+        return response()->json($data);
     }
 
-    /**
-     * Store a newly created payment (legacy method)
-     */
     public function store(Request $request)
-    {
-        return $this->createPayment($request, $request->booking_id);
+{
+    \Log::info('Payment submission started', [
+        'user_id' => auth()->id(),
+        'ip' => $request->ip(),
+        'user_agent' => $request->userAgent()
+    ]);
+
+    // Check authentication
+    if (!auth()->check()) {
+        \Log::warning('Unauthorized payment attempt');
+        return response()->json(['message' => 'Unauthorized'], 401);
     }
 
-    /**
-     * Display the specified payment
-     */
+    DB::beginTransaction();
+
+    try {
+        \Log::info('Validating payment request data');
+        
+        $validated = $request->validate([
+            'booking_id' => 'required|exists:bookings,id',
+            'payment_method' => 'required|in:cod,gcash',
+            'amount' => 'required|numeric|min:0.01',
+            'reference_number' => 'nullable|string|max:255',
+            'gcash_receipt_image' => 'nullable|image|mimes:jpeg,png,jpg,gif|max:2048',
+        ]);
+
+        \Log::info('Validation passed', $validated);
+
+        // Get the booking
+        $booking = Booking::notDeleted()->with(['accountsReceivable'])->find($validated['booking_id']);
+        
+        if (!$booking) {
+            \Log::error('Booking not found', ['booking_id' => $validated['booking_id']]);
+            return response()->json(['message' => 'Booking not found'], 404);
+        }
+
+        \Log::info('Booking found', [
+            'booking_id' => $booking->id,
+    'booking_number' => $booking->booking_number,
+    'status' => $booking->status
+        ]);
+
+        // Check if booking is approved
+        if ($booking->status !== 'approved') {
+            \Log::error('Booking not approved', ['booking_status' => $booking->status]);
+            return response()->json([
+                'message' => 'Booking must be approved before making payments',
+                'booking_status' => $booking->status
+            ], 400);
+        }
+
+        // Check if booking already has AR
+        $ar = $booking->accountsReceivable;
+        
+        if (!$ar) {
+            \Log::error('No AR record found for booking', ['booking_id' => $validated['booking_id']]);
+            return response()->json([
+                'message' => 'No payment amount set for this booking. Please contact admin.'
+            ], 400);
+        }
+
+        \Log::info('AR record found', [
+            'ar_id' => $ar->id,
+            'total_payment' => $ar->total_payment,
+            'collectible_amount' => $ar->collectible_amount,
+            'is_paid' => $ar->is_paid
+        ]);
+
+        // Check if booking is already fully paid
+        if ($ar->is_paid || $ar->collectible_amount <= 0) {
+            \Log::warning('Booking already paid', [
+                'collectible_amount' => $ar->collectible_amount,
+                'is_paid' => $ar->is_paid
+            ]);
+            return response()->json([
+                'message' => 'This booking is already fully paid',
+                'collectible_amount' => $ar->collectible_amount
+            ], 400);
+        }
+
+        // Check if payment amount exceeds collectible amount
+        $paymentAmount = floatval($validated['amount']);
+        $collectibleAmount = floatval($ar->collectible_amount);
+        
+        \Log::info('Checking payment amount', [
+            'payment_amount' => $paymentAmount,
+            'collectible_amount' => $collectibleAmount
+        ]);
+
+        if ($paymentAmount > $collectibleAmount) {
+            return response()->json([
+                'message' => 'Payment amount cannot exceed the collectible amount',
+                'collectible_amount' => $collectibleAmount,
+                'payment_amount' => $paymentAmount,
+                'excess' => $paymentAmount - $collectibleAmount
+            ], 400);
+        }
+
+        // Handle file upload if payment method is gcash
+        $gcashReceiptPath = null;
+        if ($validated['payment_method'] === 'gcash' && $request->hasFile('gcash_receipt_image')) {
+            \Log::info('Processing GCash receipt upload');
+            try {
+                $gcashReceiptPath = $request->file('gcash_receipt_image')->store('payments/receipts', 'public');
+                \Log::info('GCash receipt uploaded successfully', ['path' => $gcashReceiptPath]);
+            } catch (\Exception $e) {
+                \Log::error('Failed to upload GCash receipt', ['error' => $e->getMessage()]);
+                return response()->json([
+                    'message' => 'Failed to upload receipt image',
+                    'error' => $e->getMessage()
+                ], 500);
+            }
+        } elseif ($validated['payment_method'] === 'gcash' && !$request->hasFile('gcash_receipt_image')) {
+            \Log::warning('GCash payment without receipt');
+            return response()->json([
+                'message' => 'GCash payments require a receipt image'
+            ], 400);
+        }
+
+        // Create payment
+        \Log::info('Creating payment record');
+        $paymentData = [
+            'booking_id' => $validated['booking_id'],
+            'user_id' => auth()->id(),
+            'payment_method' => $validated['payment_method'],
+            'gcash_receipt_image' => $gcashReceiptPath,
+            'reference_number' => $validated['reference_number'] ?? null,
+            'amount' => $paymentAmount,
+            'status' => 'pending',
+            'payment_date' => now(),
+        ];
+
+        \Log::info('Payment data to create', $paymentData);
+        
+        $payment = Payment::create($paymentData);
+        
+        if (!$payment) {
+            throw new \Exception('Failed to create payment record');
+        }
+
+        \Log::info('Payment created successfully', ['payment_id' => $payment->id]);
+
+        // Update AR for both COD and GCash payments
+        $remainingAmount = $collectibleAmount - $paymentAmount;
+        $ar->update([
+            'collectible_amount' => $remainingAmount,
+            'payment_method' => $validated['payment_method'],
+            'is_paid' => $remainingAmount <= 0
+        ]);
+
+        \Log::info('AR updated for payment', [
+            'payment_method' => $validated['payment_method'],
+            'new_collectible_amount' => $remainingAmount,
+            'is_paid' => $remainingAmount <= 0
+        ]);
+
+        // If payment method is COD, mark as verified automatically
+        if ($validated['payment_method'] === 'cod') {
+            \Log::info('COD payment detected, marking as verified');
+            $payment->markAsVerified('COD payment - auto-verified on submission');
+        }
+
+        DB::commit();
+        
+        \Log::info('Payment transaction completed successfully', [
+            'payment_id' => $payment->id,
+            'booking_id' => $booking->id,
+            'amount' => $paymentAmount,
+            'method' => $validated['payment_method']
+        ]);
+
+        // Load relationships for response
+        $payment->load(['booking', 'user']);
+
+        return response()->json([
+            'message' => $validated['payment_method'] === 'cod' 
+                ? 'COD payment recorded successfully! Payment will be collected upon delivery.' 
+                : 'Payment submitted successfully! Please wait for admin verification.',
+            'payment' => $payment,
+            'remaining_balance' => $remainingAmount,
+            'accounts_receivable' => $ar->fresh(),
+            'is_paid' => $remainingAmount <= 0,
+            'payment_method' => $validated['payment_method']
+        ], 201);
+
+    } catch (\Illuminate\Validation\ValidationException $e) {
+        DB::rollBack();
+        \Log::error('Payment validation failed', [
+            'errors' => $e->errors(),
+            'request' => $request->all()
+        ]);
+        return response()->json([
+            'message' => 'Validation failed',
+            'errors' => $e->errors()
+        ], 422);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        \Log::error('Payment submission failed', [
+            'error' => $e->getMessage(),
+            'trace' => $e->getTraceAsString(),
+            'request_data' => $request->except(['gcash_receipt_image'])
+        ]);
+        
+        return response()->json([
+            'message' => 'Failed to submit payment',
+            'error' => env('APP_DEBUG') ? $e->getMessage() : 'Internal server error'
+        ], 500);
+    }
+}
+
     public function show($id)
     {
         $payment = Payment::with(['booking', 'user'])->find($id);
@@ -200,29 +277,64 @@ class PaymentController extends Controller
         return response()->json($payment);
     }
 
-    /**
-     * Update the specified payment
-     */
-    public function update(Request $request, $id)
+    public function updateStatus(Request $request, $id)
     {
-        $payment = Payment::find($id);
+        DB::beginTransaction();
 
-        if (!$payment) {
-            return response()->json(['message' => 'Payment not found'], 404);
+        try {
+            $validated = $request->validate([
+                'status' => 'required|in:verified,approved,rejected',
+                'admin_notes' => 'nullable|string'
+            ]);
+
+            $payment = Payment::with(['booking', 'booking.accountsReceivable'])->find($id);
+
+            if (!$payment) {
+                return response()->json(['message' => 'Payment not found'], 404);
+            }
+
+            // Update payment status
+            $payment->update([
+                'status' => $validated['status'],
+                'admin_notes' => $validated['admin_notes'] ?? null
+            ]);
+
+            // If payment is approved, update the AR record
+            if ($validated['status'] === 'approved') {
+                $ar = $payment->booking->accountsReceivable;
+                if ($ar) {
+                    $remainingAmount = $ar->collectible_amount - $payment->amount;
+                    
+                    if ($remainingAmount <= 0) {
+                        $ar->markAsPaid();
+                    } else {
+                        $ar->update([
+                            'collectible_amount' => $remainingAmount,
+                            'is_paid' => false,
+                        ]);
+                    }
+                    
+                    // Recalculate financials
+                    $ar->calculateFinancials()->save();
+                }
+            }
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Payment status updated successfully',
+                'payment' => $payment->fresh(['booking', 'booking.accountsReceivable'])
+            ]);
+
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'message' => 'Failed to update payment status',
+                'error' => $e->getMessage()
+            ], 500);
         }
-
-        $validated = $request->validate([
-            'status' => 'sometimes|in:pending,processing,paid,failed,cancelled',
-        ]);
-
-        $payment->update($validated);
-
-        return response()->json($payment);
     }
 
-    /**
-     * Remove the specified payment
-     */
     public function destroy($id)
     {
         $payment = Payment::find($id);
@@ -231,14 +343,17 @@ class PaymentController extends Controller
             return response()->json(['message' => 'Payment not found'], 404);
         }
 
+        // Delete receipt image if exists
+        if ($payment->gcash_receipt_image) {
+            Storage::disk('public')->delete($payment->gcash_receipt_image);
+        }
+
         $payment->delete();
 
         return response()->json(['message' => 'Payment deleted successfully']);
     }
 
-    /**
-     * Get payments by booking
-     */
+    // Get payments by booking
     public function getByBooking($bookingId)
     {
         $payments = Payment::with(['user'])
@@ -249,434 +364,17 @@ class PaymentController extends Controller
         return response()->json($payments);
     }
 
-    /**
-     * Process GCash payment (legacy method)
-     */
-    public function processGCashPayment(Request $request, $id)
+    // Get customer's payments
+    public function getCustomerPayments(Request $request)
     {
-        return response()->json(['message' => 'Use createPayment instead']);
-    }
+        $user = auth()->user();
+        $perPage = $request->get('per_page', 10);
 
-    /**
-     * Check payment status
-     */
-    public function checkPaymentStatus($id)
-    {
-        try {
-            $payment = Payment::find($id);
+        $payments = Payment::with(['booking'])
+            ->where('user_id', $user->id)
+            ->orderBy('created_at', 'desc')
+            ->paginate($perPage);
 
-            if (!$payment) {
-                return response()->json(['message' => 'Payment not found'], 404);
-            }
-
-            return response()->json([
-                'payment' => $payment,
-                'status' => $payment->status
-            ]);
-
-        } catch (\Exception $e) {
-            Log::error('💥 Payment status check error: ' . $e->getMessage());
-            return response()->json(['message' => 'Status check failed'], 500);
-        }
-    }
-
-    /**
-     * Handle Paymongo webhook with signature verification
-     */
-    public function handleWebhook(Request $request)
-    {
-        $payload = $request->getContent();
-        $signature = $request->header('Paymongo-Signature');
-        
-        Log::info('💰 PAYMONGO WEBHOOK RECEIVED', [
-            'payload' => $payload,
-            'signature' => $signature
-        ]);
-
-        try {
-            // Verify webhook signature
-            if (!$this->verifyWebhookSignature($payload, $signature)) {
-                Log::error('❌ Webhook signature verification failed');
-                return response()->json(['error' => 'Invalid signature'], 401);
-            }
-
-            $data = json_decode($payload, true);
-            $eventType = $data['data']['attributes']['type'] ?? null;
-            
-            Log::info('🔍 Webhook Event', ['event_type' => $eventType]);
-
-            // Handle different event types
-            if ($eventType === 'payment.paid') {
-                $this->handlePaymentPaid($data);
-            } elseif ($eventType === 'payment.failed') {
-                $this->handlePaymentFailed($data);
-            } elseif ($eventType === 'source.chargeable') {
-                $this->handleSourceChargeable($data);
-            } elseif ($eventType === 'payment.pending') {
-                Log::info('⏳ Payment pending', ['payment_id' => $data['data']['id'] ?? null]);
-            }
-
-            return response()->json(['status' => 'success']);
-
-        } catch (\Exception $e) {
-            Log::error('💥 Webhook processing error: ' . $e->getMessage());
-            return response()->json(['error' => 'Webhook processing failed'], 500);
-        }
-    }
-
-/**
- * Verify Paymongo webhook signature
- */
-private function verifyWebhookSignature($payload, $signature)
-{
-    try {
-        $webhookSecret = $this->webhookSecret;
-        
-        if (!$webhookSecret) {
-            Log::error('❌ Webhook secret not configured');
-            return false;
-        }
-
-        if (!$signature) {
-            Log::error('❌ No signature provided in webhook');
-            return false;
-        }
-
-        // Extract timestamp and signatures from header
-        $parts = explode(',', $signature);
-        $timestamp = null;
-        $signatures = [];
-        
-        foreach ($parts as $part) {
-            $part = trim($part);
-            if (strpos($part, 't=') === 0) {
-                $timestamp = substr($part, 2);
-            } elseif (strpos($part, 'v1=') === 0) {
-                $signatures[] = substr($part, 3);
-            }
-        }
-
-        if (!$timestamp || empty($signatures)) {
-            Log::error('❌ Invalid signature format');
-            Log::error('❌ Signature header: ' . $signature);
-            return false;
-        }
-
-        // Verify timestamp (within 5 minutes)
-        if (abs(time() - $timestamp) > 300) {
-            Log::error('❌ Webhook timestamp expired. Server time: ' . time() . ', Timestamp: ' . $timestamp);
-            return false;
-        }
-
-        // Compute expected signature
-        $signedPayload = $timestamp . '.' . $payload;
-        $expectedSignature = hash_hmac('sha256', $signedPayload, $webhookSecret);
-
-        // Check if any of the signatures match
-        foreach ($signatures as $signature) {
-            if (hash_equals($expectedSignature, $signature)) {
-                Log::info('✅ Webhook signature verified');
-                return true;
-            }
-        }
-
-        Log::error('❌ No matching signature found');
-        Log::error('❌ Expected: ' . $expectedSignature);
-        Log::error('❌ Received: ' . implode(', ', $signatures));
-        return false;
-
-    } catch (\Exception $e) {
-        Log::error('💥 Webhook verification error: ' . $e->getMessage());
-        return false;
-    }
-}
-/**
- * Create Paymongo payment link
- */
-private function createPaymongoPaymentLink(Payment $payment, Booking $booking)
-{
-    try {
-        Log::info('🔍 Creating Paymongo payment link for booking: ' . $booking->id);
-        
-        // Get user email from booking relationship
-        $userEmail = $booking->user->email ?? 'customer@example.com';
-        
-        $payload = [
-            'data' => [
-                'attributes' => [
-                    'amount' => (int)($payment->amount * 100), // Convert to cents
-                    'description' => 'Payment for Booking #' . $booking->booking_number,
-                    'remarks' => 'Shipping booking payment via GCash',
-                    'metadata' => [
-                        'booking_id' => $booking->id,
-                        'payment_id' => $payment->id,
-                        'booking_number' => $booking->booking_number,
-                        'user_id' => $payment->user_id,
-                        'user_email' => $userEmail
-                    ],
-                    'checkout' => [
-                        'success' => env('APP_URL') . '/payment/success?payment_id=' . $payment->id,
-                        'cancel' => env('APP_URL') . '/payment/cancel?payment_id=' . $payment->id,
-                    ],
-                    'payment_method_types' => ['gcash'],
-                    'send_email_receipt' => true,
-                    'description' => 'Payment for Booking #' . $booking->booking_number,
-                ]
-            ]
-        ];
-
-        Log::info('🔍 Paymongo request payload:', $payload);
-
-        $response = Http::withHeaders([
-            'Authorization' => 'Basic ' . base64_encode($this->paymongoSecret . ':'),
-            'Content-Type' => 'application/json',
-            'Accept' => 'application/json',
-        ])->timeout(30)
-          ->post($this->paymongoUrl . '/links', $payload);
-
-        Log::info('🔍 Paymongo response status: ' . $response->status());
-        
-        if ($response->successful()) {
-            $data = $response->json();
-            
-            if (isset($data['data']['attributes']['checkout_url'])) {
-                Log::info('✅ Paymongo payment link created', [
-                    'payment_id' => $data['data']['id'],
-                    'checkout_url' => $data['data']['attributes']['checkout_url']
-                ]);
-                
-                return [
-                    'id' => $data['data']['id'],
-                    'checkout_url' => $data['data']['attributes']['checkout_url'],
-                    'reference_number' => $data['data']['attributes']['reference_number'] ?? null
-                ];
-            } else {
-                Log::error('❌ No checkout_url in Paymongo response');
-                Log::error('❌ Full response:', $data);
-                throw new \Exception('No checkout URL returned from Paymongo');
-            }
-        } else {
-            $errorBody = $response->body();
-            Log::error('❌ Paymongo API error: ' . $errorBody);
-            
-            // Try to parse error
-            $errorData = json_decode($errorBody, true);
-            $errorMessage = 'Unknown Paymongo error';
-            
-            if (isset($errorData['errors'][0]['detail'])) {
-                $errorMessage = $errorData['errors'][0]['detail'];
-            } elseif (isset($errorData['errors'][0]['code'])) {
-                $errorMessage = $errorData['errors'][0]['code'];
-            }
-            
-            throw new \Exception('Paymongo API error: ' . $errorMessage);
-        }
-
-    } catch (\Exception $e) {
-        Log::error('💥 Paymongo payment link creation failed: ' . $e->getMessage());
-        throw new \Exception('Failed to create Paymongo payment link: ' . $e->getMessage());
-    }
-}
-
-    /**
-     * Handle successful payment
-     */
-    private function handlePaymentPaid($data)
-    {
-        try {
-            $paymentData = $data['data']['attributes']['data'] ?? $data['data'];
-            $paymentIntentId = $paymentData['id'] ?? null;
-            
-            if (!$paymentIntentId) {
-                Log::error('❌ Payment intent ID not found in webhook');
-                Log::error('❌ Webhook data:', $data);
-                return;
-            }
-
-            Log::info('💰 Processing paid payment for intent: ' . $paymentIntentId);
-
-            // First try to find payment by paymongo_payment_id
-            $payment = Payment::where('paymongo_payment_id', $paymentIntentId)->first();
-            
-            if (!$payment) {
-                // Try to find by metadata
-                $metadata = $paymentData['attributes']['metadata'] ?? [];
-                $paymentId = $metadata['payment_id'] ?? null;
-                
-                if ($paymentId) {
-                    $payment = Payment::find($paymentId);
-                }
-            }
-
-            if ($payment) {
-                DB::transaction(function () use ($payment, $data, $paymentIntentId) {
-                    // Update payment status to PAID
-                    $payment->update([
-                        'status' => 'paid',
-                        'paid_at' => now(),
-                        'payment_date' => now(),
-                        'paymongo_response' => $data,
-                        'paymongo_payment_id' => $paymentIntentId,
-                    ]);
-
-                    // FIXED: Update Accounts Receivable properly for GCash payment
-                    $ar = AccountsReceivable::where('booking_id', $payment->booking_id)->first();
-                    if ($ar) {
-                        $ar->update([
-                            'collectible_amount' => 0, // Clear balance
-                            'is_paid' => true, // Mark as paid
-                            'cod_pending' => false, // Clear COD flag
-                            'payment_method' => 'gcash' // Set payment method
-                        ]);
-
-                        Log::info('✅ Accounts Receivable updated for booking: ' . $payment->booking_id, [
-                            'ar_id' => $ar->id,
-                            'collectible_amount' => 0,
-                            'is_paid' => true
-                        ]);
-                    }
-
-                    Log::info('✅ Payment marked as PAID', [
-                        'payment_id' => $payment->id,
-                        'amount' => $payment->amount,
-                        'booking_id' => $payment->booking_id
-                    ]);
-                });
-            } else {
-                Log::error('❌ Payment not found for intent: ' . $paymentIntentId);
-            }
-
-        } catch (\Exception $e) {
-            Log::error('💥 Error handling payment paid: ' . $e->getMessage());
-            Log::error('💥 Stack trace: ' . $e->getTraceAsString());
-        }
-    }
-
-    /**
-     * Find payment by metadata if direct ID lookup fails
-     */
-    private function findPaymentByMetadata($data)
-    {
-        try {
-            $metadata = $data['data']['attributes']['data']['attributes']['metadata'] ?? [];
-            $paymentId = $metadata['payment_id'] ?? null;
-            $bookingId = $metadata['booking_id'] ?? null;
-
-            if ($paymentId) {
-                $payment = Payment::find($paymentId);
-                if ($payment) {
-                    DB::transaction(function () use ($payment, $data) {
-                        $payment->update([
-                            'status' => 'paid',
-                            'paid_at' => now(),
-                            'payment_date' => now(),
-                            'paymongo_response' => $data,
-                            'paymongo_payment_id' => $data['data']['attributes']['data']['id'] ?? null,
-                        ]);
-
-                        // Update Accounts Receivable
-                        $ar = AccountsReceivable::where('booking_id', $payment->booking_id)->first();
-                        if ($ar) {
-                            $ar->update([
-                                'collectible_amount' => 0,
-                                'is_paid' => true
-                            ]);
-                        }
-
-                        Log::info('✅ Payment found via metadata and marked as PAID', [
-                            'payment_id' => $payment->id,
-                            'booking_id' => $payment->booking_id
-                        ]);
-                    });
-                    return;
-                }
-            }
-
-            // If still not found, log all metadata for debugging
-            Log::error('❌ Payment not found via metadata', ['metadata' => $metadata]);
-
-        } catch (\Exception $e) {
-            Log::error('💥 Error finding payment by metadata: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Handle failed payment
-     */
-    private function handlePaymentFailed($data)
-    {
-        try {
-            $paymentIntentId = $data['data']['attributes']['data']['id'] ?? null;
-            
-            if ($paymentIntentId) {
-                $payment = Payment::where('paymongo_payment_id', $paymentIntentId)->first();
-                
-                if ($payment) {
-                    $payment->update([
-                        'status' => 'failed',
-                        'paymongo_response' => $data,
-                    ]);
-                    
-                    Log::info('❌ Payment marked as failed', ['payment_id' => $payment->id]);
-                } else {
-                    // Try to find by metadata
-                    $this->findAndFailPaymentByMetadata($data);
-                }
-            }
-        } catch (\Exception $e) {
-            Log::error('💥 Error handling payment failed: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Find and mark payment as failed by metadata
-     */
-    private function findAndFailPaymentByMetadata($data)
-    {
-        try {
-            $metadata = $data['data']['attributes']['data']['attributes']['metadata'] ?? [];
-            $paymentId = $metadata['payment_id'] ?? null;
-
-            if ($paymentId) {
-                $payment = Payment::find($paymentId);
-                if ($payment) {
-                    $payment->update([
-                        'status' => 'failed',
-                        'paymongo_response' => $data,
-                    ]);
-                    
-                    Log::info('❌ Payment found via metadata and marked as failed', ['payment_id' => $payment->id]);
-                }
-            }
-        } catch (\Exception $e) {
-            Log::error('💥 Error finding and failing payment by metadata: ' . $e->getMessage());
-        }
-    }
-
-    /**
-     * Handle source chargeable (for GCash, GrabPay, etc.)
-     */
-    private function handleSourceChargeable($data)
-    {
-        try {
-            $sourceId = $data['data']['id'] ?? null;
-            $paymentIntentId = $data['data']['attributes']['data']['attributes']['payment_intent_id'] ?? null;
-            
-            Log::info('🔌 Source chargeable', [
-                'source_id' => $sourceId,
-                'payment_intent_id' => $paymentIntentId
-            ]);
-
-            // For GCash and other payment methods that require source charging
-            if ($sourceId && $paymentIntentId) {
-                Log::info('✅ Source is chargeable, waiting for payment confirmation', [
-                    'source_id' => $sourceId,
-                    'payment_intent_id' => $paymentIntentId
-                ]);
-            }
-
-        } catch (\Exception $e) {
-            Log::error('💥 Error handling source chargeable: ' . $e->getMessage());
-        }
+        return response()->json($payments);
     }
 }

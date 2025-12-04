@@ -16,7 +16,6 @@ use App\Http\Controllers\CargoMonitoringController;
 use App\Http\Controllers\AccountsPayableController;
 use App\Http\Controllers\AccountsReceivableController;
 use App\Http\Controllers\PaymentController;
-use App\Http\Controllers\PaymongoController;
 use App\Http\Controllers\DashboardController;
 
 
@@ -180,64 +179,26 @@ Route::prefix('accounts-receivables')->group(function () {
 });
 
 
-
-
-// Customer booking payment route
-Route::post('/customer/bookings/{bookingId}/pay', [PaymentController::class, 'createPayment']);
-
-// Payment status check
-Route::get('/payments/{paymentId}/status', [PaymentController::class, 'checkPaymentStatus']);
-
-// Paymongo webhook (must be public - no auth)
-Route::post('/payments/webhook', [PaymentController::class, 'handleWebhook']);
-
-
-
+// Payments Route Group
+Route::prefix('payments')->middleware('auth:sanctum')->group(function () {
+    Route::get('/', [PaymentController::class, 'index']);
+    Route::post('/', [PaymentController::class, 'store']);
+    Route::get('/{id}', [PaymentController::class, 'show']);
+    Route::put('/{id}/status', [PaymentController::class, 'updateStatus']);
+    Route::delete('/{id}', [PaymentController::class, 'destroy']);
+    Route::get('/booking/{bookingId}', [PaymentController::class, 'getByBooking']);
+    Route::get('/customer/my-payments', [PaymentController::class, 'getCustomerPayments']);
+});
 
 // Customer-specific routes 
 Route::prefix('customer')->middleware('auth:sanctum')->group(function () {
     Route::get('/bookings', [BookingController::class, 'getCustomerBookings']);
     Route::post('/bookings', [BookingController::class, 'storeCustomerBooking']);
     Route::get('/bookings/{id}', [BookingController::class, 'getCustomerBooking']);
-    
-    // FIXED: This should point to PaymentController's createPayment method
-    Route::post('/bookings/{bookingId}/pay', [PaymentController::class, 'createPayment']);
-    
     Route::get('/accounts-receivables', [AccountsReceivableController::class, 'getCustomerReceivables']);
-    Route::post('/payments/paymongo', [PaymongoController::class, 'createPaymentIntent']);
 });
 
 
 Route::get('/dashboard-data', [DashboardController::class, 'getDashboardData'])->middleware('auth:sanctum');
 
-// Add after other routes
-Route::get('/test-paymongo-connection', function () {
-    try {
-        $secret = config('services.paymongo.secret_key');
-        $base64Key = base64_encode($secret . ':');
-        
-        Log::info('🔍 Testing Paymongo connection');
-        Log::info('🔍 Secret key exists: ' . (!empty($secret) ? 'Yes' : 'No'));
-        Log::info('🔍 Base64 key: ' . substr($base64Key, 0, 20) . '...');
-        
-        $response = Http::withHeaders([
-            'Authorization' => 'Basic ' . $base64Key,
-            'Accept' => 'application/json',
-        ])->timeout(10)
-          ->get('https://api.paymongo.com/v1/links');
-        
-        Log::info('🔍 Paymongo test response status: ' . $response->status());
-        
-        return response()->json([
-            'status' => $response->status(),
-            'success' => $response->successful(),
-            'data' => $response->successful() ? $response->json() : $response->body()
-        ]);
-    } catch (\Exception $e) {
-        Log::error('💥 Paymongo test failed: ' . $e->getMessage());
-        return response()->json([
-            'error' => $e->getMessage(),
-            'trace' => $e->getTraceAsString()
-        ], 500);
-    }
-});
+

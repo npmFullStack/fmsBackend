@@ -35,5 +35,15 @@ class UserSeeder extends Seeder
             'role' => 'admin',
             'contact_number' => '+1234567891',
         ]);
+        
+       // Create Customer
+        User::create([
+            'first_name' => 'Norway',
+            'last_name' => 'Mangorangca',
+            'email' => 'norway@gmail.com',
+            'password' => Hash::make('password'),
+            'role' => 'customer',
+            'contact_number' => '+1234567891',
+        ]);
     }
 }

@@ -1,5 +1,4 @@
 <?php
-// [file name]: 2025_01_14_000000_create_payments_table.php
 
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
@@ -7,38 +6,51 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    public function up()
+    /**
+     * Run the migrations.
+     */
+    public function up(): void
     {
         Schema::create('payments', function (Blueprint $table) {
             $table->id();
+            
+            // Foreign keys
             $table->foreignId('booking_id')->constrained('bookings')->onDelete('cascade');
             $table->foreignId('user_id')->constrained('users')->onDelete('cascade');
             
             // Payment details
-            $table->string('payment_method')->default('gcash');
-            $table->string('reference_number')->unique()->nullable();
-            $table->decimal('amount', 12, 2);
-            $table->enum('status', ['pending', 'processing', 'paid', 'failed', 'cancelled'])->default('pending');
-            $table->date('payment_date')->nullable();
+            $table->enum('payment_method', ['cod', 'gcash'])->default('cod');
+            $table->string('gcash_receipt_image')->nullable(); // Path to uploaded receipt image
+            $table->string('reference_number')->nullable();
+            $table->decimal('amount', 12, 2); // Allows for larger amounts
             
-            // Paymongo specific fields
-            $table->string('paymongo_payment_id')->nullable();
-            $table->string('paymongo_checkout_url')->nullable();
-            $table->json('paymongo_response')->nullable();
+            // Payment status tracking
+            $table->enum('status', ['pending', 'verified', 'approved', 'rejected', 'cancelled'])->default('pending');
+            $table->text('admin_notes')->nullable();
             
-            // Timestamps
-            $table->timestamps();
-
-            // Indexes
-            $table->index(['booking_id', 'user_id']);
+            // Dates
+            $table->dateTime('payment_date')->nullable();
+            $table->dateTime('verified_at')->nullable();
+            $table->dateTime('approved_at')->nullable();
+            $table->dateTime('rejected_at')->nullable();
+            $table->dateTime('cancelled_at')->nullable();
+            
+            // Indexes for performance
             $table->index('status');
-            $table->index('reference_number');
-            $table->index('paymongo_payment_id');
+            $table->index('payment_method');
+            $table->index('booking_id');
+            $table->index('user_id');
             $table->index('created_at');
+            
+            $table->timestamps();
+            $table->softDeletes();
         });
     }
 
-    public function down()
+    /**
+     * Reverse the migrations.
+     */
+    public function down(): void
     {
         Schema::dropIfExists('payments');
     }
