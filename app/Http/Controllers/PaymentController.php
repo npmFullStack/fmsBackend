@@ -93,8 +93,8 @@ class PaymentController extends Controller
 
         \Log::info('Booking found', [
             'booking_id' => $booking->id,
-    'booking_number' => $booking->booking_number,
-    'status' => $booking->status
+            'booking_number' => $booking->booking_number,
+            'status' => $booking->status
         ]);
 
         // Check if booking is approved
@@ -119,8 +119,10 @@ class PaymentController extends Controller
         \Log::info('AR record found', [
             'ar_id' => $ar->id,
             'total_payment' => $ar->total_payment,
+            'paid_amount' => $ar->paid_amount,
             'collectible_amount' => $ar->collectible_amount,
-            'is_paid' => $ar->is_paid
+            'is_paid' => $ar->is_paid,
+            'current_payment_method' => $ar->payment_method
         ]);
 
         // Check if booking is already fully paid
@@ -174,7 +176,30 @@ class PaymentController extends Controller
             ], 400);
         }
 
-        // Create payment
+        // Calculate new values for AR
+        $newPaidAmount = $ar->paid_amount + $paymentAmount;
+        $newCollectibleAmount = $collectibleAmount - $paymentAmount;
+        $isNowPaid = $newCollectibleAmount <= 0;
+        
+        // Always update payment method in AR when making a payment
+        // This ensures the payment method is saved even for partial payments
+        $ar->update([
+            'paid_amount' => $newPaidAmount,
+            'collectible_amount' => $newCollectibleAmount,
+            'payment_method' => $validated['payment_method'], // This saves payment method to AR
+            'is_paid' => $isNowPaid,
+            'payment_date' => now(),
+        ]);
+
+        \Log::info('AR updated for payment', [
+            'payment_method' => $validated['payment_method'],
+            'old_paid_amount' => $ar->paid_amount,
+            'new_paid_amount' => $newPaidAmount,
+            'new_collectible_amount' => $newCollectibleAmount,
+            'is_paid' => $isNowPaid
+        ]);
+
+        // Create payment record
         \Log::info('Creating payment record');
         $paymentData = [
             'booking_id' => $validated['booking_id'],
@@ -197,20 +222,6 @@ class PaymentController extends Controller
 
         \Log::info('Payment created successfully', ['payment_id' => $payment->id]);
 
-        // Update AR for both COD and GCash payments
-        $remainingAmount = $collectibleAmount - $paymentAmount;
-        $ar->update([
-            'collectible_amount' => $remainingAmount,
-            'payment_method' => $validated['payment_method'],
-            'is_paid' => $remainingAmount <= 0
-        ]);
-
-        \Log::info('AR updated for payment', [
-            'payment_method' => $validated['payment_method'],
-            'new_collectible_amount' => $remainingAmount,
-            'is_paid' => $remainingAmount <= 0
-        ]);
-
         // If payment method is COD, mark as verified automatically
         if ($validated['payment_method'] === 'cod') {
             \Log::info('COD payment detected, marking as verified');
@@ -223,20 +234,24 @@ class PaymentController extends Controller
             'payment_id' => $payment->id,
             'booking_id' => $booking->id,
             'amount' => $paymentAmount,
-            'method' => $validated['payment_method']
+            'method' => $validated['payment_method'],
+            'ar_payment_method' => $ar->payment_method, // Log the saved payment method
+            'ar_updated' => $ar->wasChanged() // Check if AR was actually updated
         ]);
 
         // Load relationships for response
         $payment->load(['booking', 'user']);
+        $ar->refresh(); // Get fresh AR data
 
         return response()->json([
             'message' => $validated['payment_method'] === 'cod' 
                 ? 'COD payment recorded successfully! Payment will be collected upon delivery.' 
                 : 'Payment submitted successfully! Please wait for admin verification.',
             'payment' => $payment,
-            'remaining_balance' => $remainingAmount,
-            'accounts_receivable' => $ar->fresh(),
-            'is_paid' => $remainingAmount <= 0,
+            'accounts_receivable' => $ar,
+            'remaining_balance' => $newCollectibleAmount,
+            'payment_method_set' => $ar->payment_method,
+            'is_paid' => $isNowPaid,
             'payment_method' => $validated['payment_method']
         ], 201);
 
