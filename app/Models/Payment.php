@@ -135,13 +135,18 @@ class Payment extends Model
     }
 
     // Helper methods
-    public function getReceiptUrl()
-    {
-        if ($this->gcash_receipt_image) {
-            return asset('storage/' . $this->gcash_receipt_image);
+public function getReceiptUrl()
+{
+    if ($this->gcash_receipt_image) {
+        // Check if it's already a full URL
+        if (filter_var($this->gcash_receipt_image, FILTER_VALIDATE_URL)) {
+            return $this->gcash_receipt_image;
         }
-        return null;
+        // Otherwise, generate the storage URL
+        return asset('storage/' . $this->gcash_receipt_image);
     }
+    return null;
+}
 
     public function getStatusBadge()
     {
