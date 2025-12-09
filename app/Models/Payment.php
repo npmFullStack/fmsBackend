@@ -107,14 +107,6 @@ class Payment extends Model
     }
 
     // Actions
-    public function markAsVerified($notes = null)
-    {
-        return $this->update([
-            'status' => 'verified',
-            'verified_at' => now(),
-            'admin_notes' => $notes ?? $this->admin_notes
-        ]);
-    }
 
     public function markAsApproved($notes = null)
     {

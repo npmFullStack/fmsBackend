@@ -225,7 +225,7 @@ class PaymentController extends Controller
         // If payment method is COD, mark as verified automatically
         if ($validated['payment_method'] === 'cod') {
             \Log::info('COD payment detected, marking as verified');
-            $payment->markAsVerified('COD payment - auto-verified on submission');
+            $payment->markAsApproved('COD payment - auto-verified on submission');
         }
 
         DB::commit();
@@ -293,62 +293,95 @@ class PaymentController extends Controller
     }
 
     public function updateStatus(Request $request, $id)
-    {
-        DB::beginTransaction();
+{
+    DB::beginTransaction();
 
-        try {
-            $validated = $request->validate([
-                'status' => 'required|in:verified,approved,rejected',
-                'admin_notes' => 'nullable|string'
-            ]);
+    try {
+        $validated = $request->validate([
+            'status' => 'required|in:verified,approved,rejected',
+            'admin_notes' => 'nullable|string'
+        ]);
 
-            $payment = Payment::with(['booking', 'booking.accountsReceivable'])->find($id);
+        $payment = Payment::with(['booking', 'booking.accountsReceivable'])->find($id);
 
-            if (!$payment) {
-                return response()->json(['message' => 'Payment not found'], 404);
-            }
-
-            // Update payment status
-            $payment->update([
-                'status' => $validated['status'],
-                'admin_notes' => $validated['admin_notes'] ?? null
-            ]);
-
-            // If payment is approved, update the AR record
-            if ($validated['status'] === 'approved') {
-                $ar = $payment->booking->accountsReceivable;
-                if ($ar) {
-                    $remainingAmount = $ar->collectible_amount - $payment->amount;
-                    
-                    if ($remainingAmount <= 0) {
-                        $ar->markAsPaid();
-                    } else {
-                        $ar->update([
-                            'collectible_amount' => $remainingAmount,
-                            'is_paid' => false,
-                        ]);
-                    }
-                    
-                    // Recalculate financials
-                    $ar->calculateFinancials()->save();
-                }
-            }
-
-            DB::commit();
-
-            return response()->json([
-                'message' => 'Payment status updated successfully',
-                'payment' => $payment->fresh(['booking', 'booking.accountsReceivable'])
-            ]);
-
-        } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json([
-                'message' => 'Failed to update payment status',
-                'error' => $e->getMessage()
-            ], 500);
+        if (!$payment) {
+            return response()->json(['message' => 'Payment not found'], 404);
         }
+
+        // Update payment status
+        $oldStatus = $payment->status;
+        $newStatus = $validated['status'];
+        
+        // Update payment with appropriate timestamp
+        $updateData = [
+            'status' => $newStatus,
+            'admin_notes' => $validated['admin_notes'] ?? null
+        ];
+        
+        // Set the appropriate timestamp based on status
+        if ($newStatus === 'verified') {
+            $updateData['verified_at'] = now();
+        } elseif ($newStatus === 'approved') {
+            $updateData['approved_at'] = now();
+        } elseif ($newStatus === 'rejected') {
+            $updateData['rejected_at'] = now();
+        }
+        
+        $payment->update($updateData);
+
+        // If payment is approved OR verified, update the AR record
+        if ($newStatus === 'approved' || $newStatus === 'verified') {
+            $ar = $payment->booking->accountsReceivable;
+            if ($ar) {
+                $remainingAmount = $ar->collectible_amount - $payment->amount;
+                
+                if ($remainingAmount <= 0) {
+                    // If fully paid, mark as paid
+                    $ar->markAsPaid();
+                } else {
+                    // Update collectible amount
+                    $ar->update([
+                        'collectible_amount' => $remainingAmount,
+                        'is_paid' => false,
+                        'paid_amount' => $ar->paid_amount + $payment->amount
+                    ]);
+                }
+                
+                // Recalculate financials
+                $ar->calculateFinancials()->save();
+            }
+        }
+        
+        // If payment is being rejected and was previously approved/verified, reverse the AR update
+        if ($newStatus === 'rejected' && ($oldStatus === 'approved' || $oldStatus === 'verified')) {
+            $ar = $payment->booking->accountsReceivable;
+            if ($ar) {
+                // Add the payment amount back to collectible amount
+                $ar->update([
+                    'collectible_amount' => $ar->collectible_amount + $payment->amount,
+                    'paid_amount' => max(0, $ar->paid_amount - $payment->amount),
+                    'is_paid' => $ar->collectible_amount > 0 ? false : true
+                ]);
+                
+                $ar->calculateFinancials()->save();
+            }
+        }
+
+        DB::commit();
+
+        return response()->json([
+            'message' => 'Payment status updated successfully',
+            'payment' => $payment->fresh(['booking', 'booking.accountsReceivable'])
+        ]);
+
+    } catch (\Exception $e) {
+        DB::rollBack();
+        return response()->json([
+            'message' => 'Failed to update payment status',
+            'error' => $e->getMessage()
+        ], 500);
     }
+}
 
     public function destroy($id)
     {
