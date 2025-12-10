@@ -36,11 +36,12 @@ RUN chown -R www-data:www-data storage bootstrap/cache \
 
 RUN php artisan storage:link || true
 
-# ⚠️ DANGER: This will run migrate:fresh --seed EVERY TIME the image is built
-# This will DROP ALL TABLES and re-seed the database
-# WARNING: This is destructive and should only be used in development
-RUN php artisan migrate:fresh --seed --force
+
+COPY docker-entrypoint.sh /usr/local/bin/
+RUN chmod +x /usr/local/bin/docker-entrypoint.sh
+
+# Use the entrypoint script
+ENTRYPOINT ["docker-entrypoint.sh"]
 
 CMD ["apache2-foreground"]
-
 EXPOSE 80
