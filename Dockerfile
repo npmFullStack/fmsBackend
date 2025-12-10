@@ -36,6 +36,11 @@ RUN chown -R www-data:www-data storage bootstrap/cache \
 
 RUN php artisan storage:link || true
 
+# ⚠️ DANGER: This will run migrate:fresh --seed EVERY TIME the image is built
+# This will DROP ALL TABLES and re-seed the database
+# WARNING: This is destructive and should only be used in development
+RUN php artisan migrate:fresh --seed --force
+
 CMD ["apache2-foreground"]
 
 EXPOSE 80
