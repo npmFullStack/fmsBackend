@@ -1,6 +1,3 @@
-i thought uts migrate:fresh --seed why its only migrate here?
-
-
 #!/bin/bash
 
 echo "=== Starting Application Startup ==="
